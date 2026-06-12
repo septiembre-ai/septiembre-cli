@@ -56,9 +56,8 @@ septiembre apps list
 
 Create a token via the API or CLI:
 ```bash
-septiembre auth token create --description "ci-deploy"
-# stdout: {"token":"sapi_...","id":"...","last_four":"..."}
-# WARNING (stderr): Token shown once — store it securely.
+septiembre auth token create --name "ci-deploy"
+# stdout: {"id":"...","name":"ci-deploy","token":"sapi_...","last_four":"...","warning":"Token shown once..."}
 ```
 
 Tokens are created at `POST https://api.septiembre.ai/api/v1/auth/tokens`.
@@ -71,25 +70,87 @@ Tokens can also be stored in the config file at:
 
 ```yaml
 token: sapi_<hex>
-org: my-org          # default organization slug
+org: my-org          # default organization slug (used when --org is omitted)
 api_url: https://api.septiembre.ai   # override for local dev
 ```
 
 The file must be `0600` (owner read/write only). CI **must** use `SEPTIEMBRE_TOKEN`.
 
-## Quick reference
+## Command reference
+
+### Global flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--output json\|table` | `json` | Output format (JSON for agents, table for humans) |
+| `--org <slug>` | — | Organization slug (overrides config default) |
+| `--config <path>` | `~/.config/septiembre/config.yaml` | Config file path |
+| `--json` | — | With `--help`, emit machine-readable JSON command tree |
+
+### Version and help
 
 ```bash
-septiembre version                         # print version JSON
-septiembre auth token create               # create a PAT (shown once)
-septiembre auth token list                 # list your PATs
-septiembre auth token revoke <id>          # revoke a PAT
-septiembre apps list                       # list apps
-septiembre apps get <id>                   # get app details
-septiembre deploys trigger <app-id> --tag v1.0.0
-septiembre env get <app-id>                # env values masked by default
-septiembre env get <app-id> --reveal       # show plaintext values
-septiembre logs <app-id>                   # fetch log snapshot
+septiembre --version                       # JSON: {"version":"...","commit":"...","built_at":"..."}
+septiembre --help --json                   # machine-readable command tree for agents
+```
+
+### Auth
+
+```bash
+septiembre auth whoami                     # show current user identity
+septiembre auth login                      # browser login (coming soon — use SEPTIEMBRE_TOKEN)
+
+septiembre auth token create               # create a PAT (raw token shown once in JSON)
+septiembre auth token create --name ci-deploy --expires-at 2026-12-31T00:00:00Z
+septiembre auth token list                 # list your PATs (raw value never shown)
+septiembre auth token revoke <token-id>    # revoke a PAT
+```
+
+### Organizations
+
+```bash
+septiembre orgs list                       # list orgs you belong to
+```
+
+### Applications
+
+```bash
+septiembre apps list                       # list all visible apps (cross-org)
+septiembre apps list --org <slug>          # list apps in a specific org
+septiembre apps get <app-id> --org <slug>  # get app details
+```
+
+### Environment variables
+
+```bash
+septiembre env get <app-id> --org <slug>          # list env vars (values masked as ***)
+septiembre env get <app-id> --org <slug> --reveal # show plaintext values
+septiembre env set <app-id> --org <slug> KEY=value OTHER=value2
+# env set is a full replacement (PUT) — omitted keys are deleted
+```
+
+### Deployments
+
+```bash
+septiembre deploys trigger <app-id> --org <slug> --tag v1.2.3
+septiembre deploys trigger <app-id> --org <slug> --tag v1.2.3 --env-id <uuid>
+septiembre deploys list <app-id> --org <slug>
+septiembre deploys status <app-id> <deploy-id> --org <slug>
+```
+
+### Logs
+
+```bash
+septiembre logs <app-id> --org <slug>              # fetch log snapshot (non-streaming)
+septiembre logs <app-id> --org <slug> --env-id <uuid>
+```
+
+## Output formats
+
+All commands default to JSON stdout. Use `--output table` for human-readable output:
+
+```bash
+septiembre apps list --output table
 ```
 
 ## Development
