@@ -90,3 +90,35 @@ func apiBaseURLWithConfig(configPath string) string {
 func APIBaseURL() string {
 	return apiBaseURLWithConfig(DefaultConfigPath())
 }
+
+// APIBaseURLFromPath returns the API base URL using the given config file path.
+// Intended for tests and commands that honour the --config flag.
+func APIBaseURLFromPath(configPath string) string {
+	return apiBaseURLWithConfig(configPath)
+}
+
+// ResolveWithConfigPath is the testable version of Resolve that uses an explicit
+// config file path instead of DefaultConfigPath(). Use this in command code so
+// the --config flag is respected.
+func ResolveWithConfigPath(configPath string) (string, error) {
+	return resolveWithConfig(configPath)
+}
+
+// DefaultOrgSlug returns the default org slug from the environment or config.
+// Precedence: SEPTIEMBRE_ORG env var → config file "org" key.
+func DefaultOrgSlug() string {
+	return DefaultOrgSlugFromPath(DefaultConfigPath())
+}
+
+// DefaultOrgSlugFromPath returns the default org slug using the given config path.
+// Intended for commands that honour the --config flag.
+func DefaultOrgSlugFromPath(configPath string) string {
+	if o := os.Getenv("SEPTIEMBRE_ORG"); o != "" {
+		return o
+	}
+	v, err := loadConfig(configPath)
+	if err != nil {
+		return ""
+	}
+	return v.GetString("org")
+}
