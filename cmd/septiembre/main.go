@@ -5,6 +5,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -15,7 +16,13 @@ import (
 func main() {
 	root := cli.NewRootCmd()
 	if err := root.Execute(); err != nil {
-		// Write error as JSON to stderr so agents can parse it.
+		// Commands that set a specific exit code return *cli.ExitError and have
+		// already written the error envelope to stderr via the Renderer.
+		var ee *cli.ExitError
+		if errors.As(err, &ee) {
+			os.Exit(ee.Code)
+		}
+		// Fallback for unhandled errors (should not normally occur).
 		fmt.Fprintf(os.Stderr, `{"error":%q,"code":"general_error"}`+"\n", err.Error())
 		os.Exit(output.ExitGeneral)
 	}

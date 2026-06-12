@@ -10,6 +10,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/septiembre-ai/septiembre-cli/internal/output"
@@ -67,9 +68,13 @@ AUTHENTICATION
 		"When used with --help, emit the command tree as machine-readable JSON")
 
 	// Custom help function: intercepts --help --json to emit agent-readable tree (spec B-09a).
+	// Checks the persistent --json flag binding first (works when --json precedes --help),
+	// then falls back to scanning os.Args (covers the common --help --json order where cobra
+	// triggers help before finishing flag parsing).
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-		if wantsJSONHelp() {
-			emitHelpJSON(root)
+		jsonFlag, _ := cmd.Root().PersistentFlags().GetBool("json")
+		if jsonFlag || wantsJSONHelp() {
+			emitHelpJSON(root, cmd.Root().OutOrStdout())
 			return
 		}
 		// Default help output.
@@ -80,13 +85,19 @@ AUTHENTICATION
 
 	// Attach subcommands.
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(NewAuthCmd())
+	root.AddCommand(NewOrgsCmd())
+	root.AddCommand(NewAppsCmd())
+	root.AddCommand(NewEnvCmd())
+	root.AddCommand(NewDeploysCmd())
+	root.AddCommand(NewLogsCmd())
 
 	// root RunE: --version emits JSON (spec B-10a); otherwise show help.
 	root.Flags().BoolP("version", "v", false, "Print version as JSON and exit")
 	root.RunE = func(cmd *cobra.Command, args []string) error {
 		versionFlag, _ := cmd.Flags().GetBool("version")
 		if versionFlag {
-			return runVersionJSON()
+			return runVersionJSON(cmd.OutOrStdout())
 		}
 		return cmd.Help()
 	}
@@ -113,19 +124,20 @@ func newVersionCmd() *cobra.Command {
 		Short: "Print the CLI version, commit SHA, and build timestamp as JSON",
 		Long:  "Print build metadata as JSON. Fields: version, commit, built_at.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runVersionJSON()
+			return runVersionJSON(cmd.OutOrStdout())
 		},
 	}
 }
 
 // runVersionJSON emits version info as JSON per spec B-10a.
-func runVersionJSON() error {
+// w receives the output — always use cmd.OutOrStdout() so tests can capture it.
+func runVersionJSON(w io.Writer) error {
 	out := map[string]string{
 		"version":  version.Version,
 		"commit":   version.Commit,
 		"built_at": version.BuiltAt,
 	}
-	enc := json.NewEncoder(os.Stdout)
+	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
 }
@@ -146,11 +158,12 @@ type flagJSON struct {
 }
 
 // emitHelpJSON walks the cobra command tree from root and writes the
-// machine-readable JSON representation to stdout (spec B-09a).
-func emitHelpJSON(root *cobra.Command) {
+// machine-readable JSON representation to w (spec B-09a).
+// Always call with cmd.Root().OutOrStdout() so tests can capture the output.
+func emitHelpJSON(root *cobra.Command, w io.Writer) {
 	tree := buildCommandJSON(root)
 	payload := map[string]any{"commands": tree.Subcommands}
-	enc := json.NewEncoder(os.Stdout)
+	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(payload)
 }
