@@ -63,7 +63,7 @@ func (r *Renderer) Render(v any) error {
 // httpStatus == 0 maps to ExitNetwork when there is no HTTP response.
 // Pass -1 to suppress the http_status field (client-side validation errors).
 func (r *Renderer) RenderError(message, code string, httpStatus int) int {
-	exitCode := ExitGeneral
+	var exitCode int
 	switch {
 	case httpStatus == 0:
 		exitCode = ExitNetwork
@@ -74,11 +74,4 @@ func (r *Renderer) RenderError(message, code string, httpStatus int) int {
 	}
 	_ = writeError(r.err, message, code, max(httpStatus, 0))
 	return exitCode
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
