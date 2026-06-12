@@ -145,6 +145,78 @@ func TestAppsGet_Success(t *testing.T) {
 	}
 }
 
+// ---- T14: apps delete RED tests ----
+
+func TestAppsDelete_WithYes_202Deleting(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/orgs", orgsHandler("acme", "org-1"))
+	mux.HandleFunc("/api/v1/orgs/org-1/apps/app-1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "expected DELETE", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"status":"deleting"}`))
+	})
+	srv := newTestServer(t, mux)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	err := exec("apps", "delete", "app-1", "--org", "acme", "--yes")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("delete --yes: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("delete --yes: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	if status, _ := got["status"].(string); status != "deleting" {
+		t.Errorf("delete --yes: want status deleting, got %q", status)
+	}
+}
+
+func TestAppsDelete_MissingYes_ExitValidation(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/orgs", orgsHandler("acme", "org-1"))
+	mux.HandleFunc("/api/v1/orgs/org-1/apps/app-1", func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("DeleteApp must not be called when --yes is absent")
+	})
+	srv := newTestServer(t, mux)
+	_, errBuf, exec := newTestRoot(t, srv)
+
+	err := exec("apps", "delete", "app-1", "--org", "acme")
+
+	if got := exitCode(err); got != output.ExitValidation {
+		t.Errorf("delete missing --yes: want exit %d, got %d; stderr: %s", output.ExitValidation, got, errBuf)
+	}
+	var env map[string]any
+	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
+		t.Fatalf("delete missing --yes: stderr not JSON: %v\nstderr: %s", jsonErr, errBuf)
+	}
+	if code, _ := env["code"].(string); code != "validation_error" {
+		t.Errorf("delete missing --yes: want code validation_error, got %q", code)
+	}
+}
+
+func TestAppsDelete_NotFound_ExitNotFound(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/orgs", orgsHandler("acme", "org-1"))
+	mux.HandleFunc("/api/v1/orgs/org-1/apps/nonexistent", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"app not found"}`))
+	})
+	srv := newTestServer(t, mux)
+	_, errBuf, exec := newTestRoot(t, srv)
+
+	err := exec("apps", "delete", "nonexistent", "--org", "acme", "--yes")
+
+	if got := exitCode(err); got != output.ExitNotFound {
+		t.Errorf("delete not found: want exit %d, got %d; stderr: %s", output.ExitNotFound, got, errBuf)
+	}
+}
+
 // ---- T11: apps create — resolveTeamID and --wait RED tests ----
 
 // appsCreateMux returns a base mux for apps create tests.
