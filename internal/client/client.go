@@ -122,9 +122,23 @@ func (c *Client) delete(ctx context.Context, path string) error {
 	return nil
 }
 
+// isIdempotent reports whether a method is safe to retry. POST is excluded:
+// a 5xx or a network failure after the request was sent may have already
+// produced the side effect (a deployment, a token), and retrying would
+// duplicate it.
+func isIdempotent(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPut, http.MethodDelete:
+		return true
+	}
+	return false
+}
+
 // do executes the request with retry logic.
 //
 // Retry policy:
+//   - Only idempotent methods (GET/HEAD/PUT/DELETE) are ever retried.
+//     POST gets exactly one attempt.
 //   - 5xx responses: retry up to maxRetries times with the configured delay.
 //   - Network errors: retry up to maxRetries times.
 //   - 4xx responses: returned immediately; never retried.
@@ -138,7 +152,12 @@ func (c *Client) do(ctx context.Context, method, path string, body any) (*http.R
 		lastServerStatus int
 	)
 
-	for attempt := range maxRetries {
+	attempts := maxRetries
+	if !isIdempotent(method) {
+		attempts = 1
+	}
+
+	for attempt := range attempts {
 		if attempt > 0 {
 			delay := c.retryDelay(attempt)
 			select {
@@ -177,7 +196,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any) (*http.R
 		return nil, &APIError{
 			HTTPStatus: lastServerStatus,
 			Code:       "server_error",
-			Message:    fmt.Sprintf("server error after %d attempts", maxRetries),
+			Message:    fmt.Sprintf("server error after %d attempts", attempts),
 		}
 	}
 	return nil, networkError(lastNetErr)

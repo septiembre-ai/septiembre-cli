@@ -229,6 +229,28 @@ func TestRetryOn5xx_SucceedsAfterRetry(t *testing.T) {
 	}
 }
 
+// TestNoRetryOnPOST proves that non-idempotent requests are never retried:
+// a POST that hits a 5xx (or a network failure after the request was sent)
+// may already have produced a side effect — retrying it would trigger a
+// duplicate deployment or mint a duplicate token.
+func TestNoRetryOnPOST(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, err := c.TriggerDeployment(context.Background(), "org-1", "app-1", "v1.0.0", "")
+	if err == nil {
+		t.Fatal("expected error from 5xx POST")
+	}
+	if calls.Load() != 1 {
+		t.Errorf("server calls = %d, want 1 (POST must never be retried)", calls.Load())
+	}
+}
+
 func TestNoRetryOn4xx(t *testing.T) {
 	t.Parallel()
 
