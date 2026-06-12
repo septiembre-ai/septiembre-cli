@@ -144,3 +144,242 @@ func TestAppsGet_Success(t *testing.T) {
 		t.Errorf("apps get: want id app-1, got %q", id)
 	}
 }
+
+// ---- T11: apps create — resolveTeamID and --wait RED tests ----
+
+// appsCreateMux returns a base mux for apps create tests.
+// The teams endpoint returns teamsJSON; additional handlers are registered by callers.
+func appsCreateMux(orgSlug, orgID, teamsJSON string) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/orgs", orgsHandler(orgSlug, orgID))
+	mux.HandleFunc("/api/v1/orgs/"+orgID+"/teams", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(teamsJSON))
+	})
+	return mux
+}
+
+func TestAppsCreate_ZeroTeams_ExitValidation(t *testing.T) {
+	mux := appsCreateMux("acme", "org-1", "[]")
+	mux.HandleFunc("/api/v1/orgs/org-1/apps", func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("CreateApp must not be called when team resolution fails")
+	})
+	srv := newTestServer(t, mux)
+	_, errBuf, exec := newTestRoot(t, srv)
+
+	err := exec("apps", "create", "--name", "my-app", "--type", "web", "--region", "us-east-1", "--org", "acme")
+
+	if got := exitCode(err); got != output.ExitValidation {
+		t.Errorf("zero teams: want exit %d, got %d; stderr: %s", output.ExitValidation, got, errBuf)
+	}
+	var env map[string]any
+	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
+		t.Fatalf("zero teams: stderr not JSON: %v\nstderr: %s", jsonErr, errBuf)
+	}
+	if code, _ := env["code"].(string); code != "validation_error" {
+		t.Errorf("zero teams: want code validation_error, got %q", code)
+	}
+}
+
+func TestAppsCreate_SingleTeam_AutoSelect_Success(t *testing.T) {
+	const oneTeam = `[{"id":"team-1","org_id":"org-1","slug":"engineers","name":"Engineers","is_system":false,"is_active":true,"created_at":"2024-01-01T00:00:00Z"}]`
+	const createdApp = `{"id":"app-new","org_id":"org-1","name":"my-app","label":"my-app","type":"web","aws_region":"us-east-1","github_repo_full":"","github_branch":"main","subdomain":"my-app","domain_status":"pending","visibility":"private","is_active":true,"created_at":"2024-01-01T00:00:00Z"}`
+	mux := appsCreateMux("acme", "org-1", oneTeam)
+	mux.HandleFunc("/api/v1/orgs/org-1/apps", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "expected POST", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(createdApp))
+	})
+	srv := newTestServer(t, mux)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	err := exec("apps", "create", "--name", "my-app", "--type", "web", "--region", "us-east-1", "--org", "acme")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("single team auto-select: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("single team auto-select: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	if id, _ := got["id"].(string); id != "app-new" {
+		t.Errorf("single team auto-select: want id app-new, got %q", id)
+	}
+}
+
+func TestAppsCreate_MultipleTeams_ExitValidation(t *testing.T) {
+	const twoTeams = `[{"id":"team-1","org_id":"org-1","slug":"engineers","name":"Engineers","is_system":false,"is_active":true,"created_at":"2024-01-01T00:00:00Z"},{"id":"team-2","org_id":"org-1","slug":"admins","name":"Admins","is_system":false,"is_active":true,"created_at":"2024-01-01T00:00:00Z"}]`
+	mux := appsCreateMux("acme", "org-1", twoTeams)
+	srv := newTestServer(t, mux)
+	_, errBuf, exec := newTestRoot(t, srv)
+
+	err := exec("apps", "create", "--name", "my-app", "--type", "web", "--region", "us-east-1", "--org", "acme")
+
+	if got := exitCode(err); got != output.ExitValidation {
+		t.Errorf("multiple teams: want exit %d, got %d; stderr: %s", output.ExitValidation, got, errBuf)
+	}
+	var env map[string]any
+	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
+		t.Fatalf("multiple teams: stderr not JSON: %v\nstderr: %s", jsonErr, errBuf)
+	}
+	if code, _ := env["code"].(string); code != "validation_error" {
+		t.Errorf("multiple teams: want code validation_error, got %q", code)
+	}
+}
+
+func TestAppsCreate_ExplicitTeam_BySlug(t *testing.T) {
+	const twoTeams = `[{"id":"team-1","org_id":"org-1","slug":"engineers","name":"Engineers","is_system":false,"is_active":true,"created_at":"2024-01-01T00:00:00Z"},{"id":"team-2","org_id":"org-1","slug":"admins","name":"Admins","is_system":false,"is_active":true,"created_at":"2024-01-01T00:00:00Z"}]`
+	mux := appsCreateMux("acme", "org-1", twoTeams)
+	mux.HandleFunc("/api/v1/orgs/org-1/apps", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"app-new","org_id":"org-1","name":"my-app","type":"web","subdomain":"my-app","domain_status":"pending","is_active":true,"created_at":"2024-01-01T00:00:00Z"}`))
+	})
+	srv := newTestServer(t, mux)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	err := exec("apps", "create", "--name", "my-app", "--type", "web", "--region", "us-east-1", "--team", "admins", "--org", "acme")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("explicit team by slug: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("explicit team by slug: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	if id, _ := got["id"].(string); id != "app-new" {
+		t.Errorf("explicit team by slug: want id app-new, got %q", id)
+	}
+}
+
+func TestAppsCreate_MissingRuntime_ExitValidation(t *testing.T) {
+	const oneTeam = `[{"id":"team-1","org_id":"org-1","slug":"engineers","name":"Engineers","is_system":false,"is_active":true,"created_at":"2024-01-01T00:00:00Z"}]`
+	mux := appsCreateMux("acme", "org-1", oneTeam)
+	mux.HandleFunc("/api/v1/orgs/org-1/apps", func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("CreateApp must not be called when runtime validation fails")
+	})
+	srv := newTestServer(t, mux)
+	_, errBuf, exec := newTestRoot(t, srv)
+
+	// --type api requires --runtime; omit it to trigger client-side validation.
+	err := exec("apps", "create", "--name", "my-api", "--type", "api", "--region", "us-east-1", "--org", "acme")
+
+	if got := exitCode(err); got != output.ExitValidation {
+		t.Errorf("missing runtime: want exit %d, got %d; stderr: %s", output.ExitValidation, got, errBuf)
+	}
+	var env map[string]any
+	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
+		t.Fatalf("missing runtime: stderr not JSON: %v\nstderr: %s", jsonErr, errBuf)
+	}
+	if code, _ := env["code"].(string); code != "validation_error" {
+		t.Errorf("missing runtime: want code validation_error, got %q", code)
+	}
+}
+
+func TestAppsCreate_Wait_DomainActive_ExitOK(t *testing.T) {
+	const oneTeam = `[{"id":"team-1","org_id":"org-1","slug":"engineers","name":"Engineers","is_system":false,"is_active":true,"created_at":"2024-01-01T00:00:00Z"}]`
+	mux := appsCreateMux("acme", "org-1", oneTeam)
+	mux.HandleFunc("/api/v1/orgs/org-1/apps", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "expected POST", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"app-new","org_id":"org-1","name":"my-app","type":"web","subdomain":"my-app","domain_status":"pending","is_active":true,"created_at":"2024-01-01T00:00:00Z"}`))
+	})
+	// Poll endpoint: return pending once, then active.
+	var polls int32
+	mux.HandleFunc("/api/v1/orgs/org-1/apps/app-new", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		n := int(polls)
+		polls++
+		domainStatus := "pending"
+		if n >= 1 {
+			domainStatus = "active"
+		}
+		_, _ = w.Write([]byte(`{"id":"app-new","org_id":"org-1","name":"my-app","type":"web","subdomain":"my-app","domain_status":"` + domainStatus + `","is_active":true,"created_at":"2024-01-01T00:00:00Z"}`))
+	})
+	srv := newTestServer(t, mux)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	err := exec("apps", "create", "--name", "my-app", "--type", "web", "--region", "us-east-1", "--org", "acme",
+		"--wait", "--wait-interval", "1ms", "--wait-timeout", "5s")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("wait domain active: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("wait domain active: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	if ds, _ := got["domain_status"].(string); ds != "active" {
+		t.Errorf("wait domain active: want domain_status active, got %q", ds)
+	}
+}
+
+func TestAppsCreate_Wait_DomainFailed_ExitGeneral(t *testing.T) {
+	const oneTeam = `[{"id":"team-1","org_id":"org-1","slug":"engineers","name":"Engineers","is_system":false,"is_active":true,"created_at":"2024-01-01T00:00:00Z"}]`
+	mux := appsCreateMux("acme", "org-1", oneTeam)
+	mux.HandleFunc("/api/v1/orgs/org-1/apps", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"app-new","org_id":"org-1","name":"my-app","type":"web","subdomain":"my-app","domain_status":"pending","is_active":true,"created_at":"2024-01-01T00:00:00Z"}`))
+	})
+	mux.HandleFunc("/api/v1/orgs/org-1/apps/app-new", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"app-new","org_id":"org-1","name":"my-app","type":"web","subdomain":"my-app","domain_status":"failed","is_active":false,"created_at":"2024-01-01T00:00:00Z"}`))
+	})
+	srv := newTestServer(t, mux)
+	_, errBuf, exec := newTestRoot(t, srv)
+
+	err := exec("apps", "create", "--name", "my-app", "--type", "web", "--region", "us-east-1", "--org", "acme",
+		"--wait", "--wait-interval", "1ms", "--wait-timeout", "5s")
+
+	if got := exitCode(err); got != output.ExitGeneral {
+		t.Errorf("wait domain failed: want exit %d, got %d; stderr: %s", output.ExitGeneral, got, errBuf)
+	}
+	var env map[string]any
+	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
+		t.Fatalf("wait domain failed: stderr not JSON: %v\nstderr: %s", jsonErr, errBuf)
+	}
+	if code, _ := env["code"].(string); code != "domain_failed" {
+		t.Errorf("wait domain failed: want code domain_failed, got %q", code)
+	}
+}
+
+func TestAppsCreate_Wait_Timeout_ExitGeneral(t *testing.T) {
+	const oneTeam = `[{"id":"team-1","org_id":"org-1","slug":"engineers","name":"Engineers","is_system":false,"is_active":true,"created_at":"2024-01-01T00:00:00Z"}]`
+	mux := appsCreateMux("acme", "org-1", oneTeam)
+	mux.HandleFunc("/api/v1/orgs/org-1/apps", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"app-new","org_id":"org-1","name":"my-app","type":"web","subdomain":"my-app","domain_status":"pending","is_active":true,"created_at":"2024-01-01T00:00:00Z"}`))
+	})
+	// Poll always returns pending — forces timeout.
+	mux.HandleFunc("/api/v1/orgs/org-1/apps/app-new", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"app-new","org_id":"org-1","name":"my-app","type":"web","subdomain":"my-app","domain_status":"pending","is_active":true,"created_at":"2024-01-01T00:00:00Z"}`))
+	})
+	srv := newTestServer(t, mux)
+	_, errBuf, exec := newTestRoot(t, srv)
+
+	// 1ms interval, 10ms timeout → forces timeout quickly.
+	err := exec("apps", "create", "--name", "my-app", "--type", "web", "--region", "us-east-1", "--org", "acme",
+		"--wait", "--wait-interval", "1ms", "--wait-timeout", "10ms")
+
+	if got := exitCode(err); got != output.ExitGeneral {
+		t.Errorf("wait timeout: want exit %d, got %d; stderr: %s", output.ExitGeneral, got, errBuf)
+	}
+	var env map[string]any
+	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
+		t.Fatalf("wait timeout: stderr not JSON: %v\nstderr: %s", jsonErr, errBuf)
+	}
+	if code, _ := env["code"].(string); code != "wait_timeout" {
+		t.Errorf("wait timeout: want code wait_timeout, got %q", code)
+	}
+}

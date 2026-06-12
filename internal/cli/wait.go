@@ -37,6 +37,12 @@ func pollUntil(ctx context.Context, interval, timeout time.Duration, fn func(con
 		case <-ticker.C:
 			done, err := fn(ctx)
 			if err != nil {
+				// If the internal deadline expired while fn was executing, surface
+				// the result as errWaitTimeout rather than the context error — the
+				// deadline is the reason the poll stopped, not an API failure.
+				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					return errWaitTimeout
+				}
 				return err
 			}
 			if done {
