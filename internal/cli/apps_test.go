@@ -525,3 +525,100 @@ func TestAppsCreate_Wait_Timeout_ExitGeneral(t *testing.T) {
 		t.Errorf("wait timeout: want code wait_timeout, got %q", code)
 	}
 }
+
+// ---- W3: apps create — explicit team by ID ----
+
+func TestAppsCreate_ExplicitTeam_ByID(t *testing.T) {
+	const twoTeams = `[{"id":"team-uuid-1","org_id":"org-1","slug":"engineers","name":"Engineers","is_system":false,"is_active":true,"created_at":"2024-01-01T00:00:00Z"},{"id":"team-uuid-2","org_id":"org-1","slug":"admins","name":"Admins","is_system":false,"is_active":true,"created_at":"2024-01-01T00:00:00Z"}]`
+	mux := appsCreateMux("acme", "org-1", twoTeams)
+
+	var capturedTeamID string
+	mux.HandleFunc("/api/v1/orgs/org-1/apps", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "expected POST", http.StatusMethodNotAllowed)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			capturedTeamID, _ = body["team_id"].(string)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"app-new","org_id":"org-1","name":"my-app","type":"web","subdomain":"my-app","domain_status":"pending","is_active":true,"created_at":"2024-01-01T00:00:00Z"}`))
+	})
+	srv := newTestServer(t, mux)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	// Pass the raw UUID (not slug) of the second team.
+	err := exec("apps", "create", "--name", "my-app", "--type", "web", "--region", "us-east-1", "--team", "team-uuid-2", "--org", "acme")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("explicit team by id: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("explicit team by id: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	if capturedTeamID != "team-uuid-2" {
+		t.Errorf("explicit team by id: want team_id %q in create payload, got %q", "team-uuid-2", capturedTeamID)
+	}
+}
+
+// ---- W2: apps delete — dispatch_failed exits 1 ----
+
+func TestAppsDelete_DispatchFailed(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/orgs", orgsHandler("acme", "org-1"))
+	mux.HandleFunc("/api/v1/orgs/org-1/apps/app-1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "expected DELETE", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"status":"dispatch_failed"}`))
+	})
+	srv := newTestServer(t, mux)
+	_, errBuf, exec := newTestRoot(t, srv)
+
+	err := exec("apps", "delete", "app-1", "--org", "acme", "--yes")
+
+	if got := exitCode(err); got != output.ExitGeneral {
+		t.Errorf("dispatch_failed: want exit %d, got %d; stderr: %s", output.ExitGeneral, got, errBuf)
+	}
+	var env map[string]any
+	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
+		t.Fatalf("dispatch_failed: stderr not JSON: %v\nstderr: %s", jsonErr, errBuf)
+	}
+	if code, _ := env["code"].(string); code != "teardown_dispatch_failed" {
+		t.Errorf("dispatch_failed: want code teardown_dispatch_failed, got %q", code)
+	}
+}
+
+// ---- W1: apps list — url field composed ----
+
+func TestAppsList_URL_ComposedField(t *testing.T) {
+	// App with subdomain "my-app" → url must appear in apps list JSON output.
+	const appsJSON = `[{"id":"app-1","org_id":"org-1","name":"my-app","label":"my-app","type":"web","aws_region":"us-east-1","github_repo_full":"","github_branch":"main","subdomain":"my-app","domain_status":"active","visibility":"private","is_active":true,"created_at":"2024-01-01T00:00:00Z"}]`
+	handler := orgsAndAppsHandler("acme", "org-1", appsJSON, "")
+	srv := newTestServer(t, handler)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	t.Setenv("SEPTIEMBRE_DOMAIN_SUFFIX", "")
+	err := exec("apps", "list", "--org", "acme")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("apps list url: want exit 0, got %d", got)
+	}
+	var got []map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("apps list url: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	if len(got) == 0 {
+		t.Fatal("apps list url: expected at least one app")
+	}
+	wantURL := "https://my-app.septiembre.co"
+	if u, _ := got[0]["url"].(string); u != wantURL {
+		t.Errorf("apps list url: want url %q, got %q", wantURL, u)
+	}
+}

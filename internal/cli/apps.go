@@ -65,7 +65,13 @@ func newAppsListCmd() *cobra.Command {
 				if aErr != nil {
 					return handleAPIError(r, aErr)
 				}
-				if err := r.Render(apps); err != nil {
+				configPath := configFlagOrDefault(cmd)
+				suffix := credentials.DomainSuffixFromPath(configPath)
+				views := make([]appView, len(apps))
+				for i := range apps {
+					views[i] = newAppView(&apps[i], suffix)
+				}
+				if err := r.Render(views); err != nil {
 					return &ExitError{Code: output.ExitGeneral}
 				}
 				return nil
@@ -76,7 +82,13 @@ func newAppsListCmd() *cobra.Command {
 			if aErr != nil {
 				return handleAPIError(r, aErr)
 			}
-			if err := r.Render(apps); err != nil {
+			configPath := configFlagOrDefault(cmd)
+			suffix := credentials.DomainSuffixFromPath(configPath)
+			views := make([]appView, len(apps))
+			for i := range apps {
+				views[i] = newAppView(&apps[i], suffix)
+			}
+			if err := r.Render(views); err != nil {
 				return &ExitError{Code: output.ExitGeneral}
 			}
 			return nil
@@ -273,6 +285,14 @@ to finish. Use 'apps get' to poll teardown status.
 			resp, err := c.DeleteApp(cmd.Context(), orgID, args[0])
 			if err != nil {
 				return handleAPIError(r, err)
+			}
+			if resp.Status == "dispatch_failed" {
+				_ = r.RenderError(
+					fmt.Sprintf("app %q was marked for deletion but infrastructure teardown failed to start; retry or check the API for status", args[0]),
+					"teardown_dispatch_failed",
+					-1,
+				)
+				return &ExitError{Code: output.ExitGeneral}
 			}
 			if err := r.Render(resp); err != nil {
 				return &ExitError{Code: output.ExitGeneral}
