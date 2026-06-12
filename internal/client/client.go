@@ -122,6 +122,21 @@ func (c *Client) delete(ctx context.Context, path string) error {
 	return nil
 }
 
+// deleteInto performs a DELETE request and decodes the 2xx response body into v.
+// Unlike delete(), this variant surfaces the response body — used for endpoints
+// that return a status payload on 202 (e.g. DELETE /apps/{id} → {"status":"deleting"}).
+// DELETE remains idempotent per isIdempotent; a retried teardown-dispatch is safe.
+func (c *Client) deleteInto(ctx context.Context, path string, v any) error {
+	resp, err := c.do(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return parseErrorResponse(resp)
+	}
+	return decodeJSON(resp, v)
+}
+
 // isIdempotent reports whether a method is safe to retry. POST is excluded:
 // a 5xx or a network failure after the request was sent may have already
 // produced the side effect (a deployment, a token), and retrying would

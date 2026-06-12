@@ -12,6 +12,27 @@ import (
 // Override with SEPTIEMBRE_API_URL for local development or testing.
 const DefaultAPIBaseURL = "https://api.septiembre.ai"
 
+// DefaultDomainSuffix is the production domain suffix for composed app URLs.
+// Override with SEPTIEMBRE_DOMAIN_SUFFIX env var or the "domain_suffix" config key.
+const DefaultDomainSuffix = "septiembre.co"
+
+// DomainSuffixFromPath returns the domain suffix to use for app URL composition.
+// Precedence: SEPTIEMBRE_DOMAIN_SUFFIX env var → config "domain_suffix" key → DefaultDomainSuffix.
+// Uses the same resolution pattern as DefaultOrgSlugFromPath and apiBaseURLWithConfig.
+func DomainSuffixFromPath(configPath string) string {
+	if s := os.Getenv("SEPTIEMBRE_DOMAIN_SUFFIX"); s != "" {
+		return s
+	}
+	v, err := loadConfig(configPath)
+	if err != nil {
+		return DefaultDomainSuffix
+	}
+	if s := v.GetString("domain_suffix"); s != "" {
+		return s
+	}
+	return DefaultDomainSuffix
+}
+
 // DefaultConfigPath returns the OS-appropriate path for the CLI config file.
 //
 //   - Linux/macOS: $XDG_CONFIG_HOME/septiembre/config.yaml (usually ~/.config/septiembre/config.yaml)

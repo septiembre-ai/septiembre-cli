@@ -87,6 +87,7 @@ AUTHENTICATION
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(NewAuthCmd())
 	root.AddCommand(NewOrgsCmd())
+	root.AddCommand(NewTeamsCmd())
 	root.AddCommand(NewAppsCmd())
 	root.AddCommand(NewEnvCmd())
 	root.AddCommand(NewDeploysCmd())
