@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/septiembre-ai/septiembre-cli/internal/client"
 	"github.com/septiembre-ai/septiembre-cli/internal/credentials"
@@ -99,4 +100,60 @@ func requireOrgID(ctx context.Context, cmd *cobra.Command, c *client.Client, r *
 
 	r.RenderError(fmt.Sprintf("org %q not found", slug), "not_found", 404)
 	return "", &ExitError{Code: output.ExitNotFound}
+}
+
+// resolveTeamID returns the team UUID to use for app creation.
+//
+// Resolution order:
+//  1. explicit: --team by slug or ID match against ListTeams
+//  2. auto: org has exactly one team → auto-select its ID
+//  3. fail: zero teams → exit 4 with "create a team" guidance
+//  4. fail: multiple teams → exit 4 listing available slugs and requiring --team
+func resolveTeamID(ctx context.Context, _ *cobra.Command, c *client.Client, r *output.Renderer, orgID, explicitTeam string) (string, error) {
+	teams, err := c.ListTeams(ctx, orgID)
+	if err != nil {
+		return "", handleAPIError(r, err)
+	}
+
+	if explicitTeam != "" {
+		for _, tm := range teams {
+			if tm.Slug == explicitTeam || tm.ID == explicitTeam {
+				return tm.ID, nil
+			}
+		}
+		r.RenderError(
+			fmt.Sprintf("team %q not found; available: %s", explicitTeam, joinTeamSlugs(teams)),
+			"validation_error",
+			-1,
+		)
+		return "", &ExitError{Code: output.ExitValidation}
+	}
+
+	switch len(teams) {
+	case 0:
+		r.RenderError(
+			"org has no teams; create a team in the web UI before creating apps",
+			"validation_error",
+			-1,
+		)
+		return "", &ExitError{Code: output.ExitValidation}
+	case 1:
+		return teams[0].ID, nil
+	default:
+		r.RenderError(
+			fmt.Sprintf("org has multiple teams; specify one with --team (available: %s)", joinTeamSlugs(teams)),
+			"validation_error",
+			-1,
+		)
+		return "", &ExitError{Code: output.ExitValidation}
+	}
+}
+
+// joinTeamSlugs returns a comma-separated list of team slugs for error messages.
+func joinTeamSlugs(teams []client.Team) string {
+	slugs := make([]string, len(teams))
+	for i, tm := range teams {
+		slugs[i] = tm.Slug
+	}
+	return strings.Join(slugs, ", ")
 }

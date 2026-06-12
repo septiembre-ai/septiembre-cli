@@ -151,13 +151,36 @@ septiembre auth token revoke <token-id>    # revoke a PAT
 septiembre orgs list                       # list orgs you belong to
 ```
 
+### Teams
+
+```bash
+septiembre teams list --org <slug>         # list teams in an org
+```
+
 ### Applications
 
 ```bash
 septiembre apps list                       # list all visible apps (cross-org)
 septiembre apps list --org <slug>          # list apps in a specific org
-septiembre apps get <app-id> --org <slug>  # get app details
+septiembre apps get <app-id> --org <slug>  # get app details (includes composed url field)
+
+# Create an app (team auto-selected when org has exactly one team)
+septiembre apps create --name my-app --type web --region us-east-1 --org <slug>
+septiembre apps create --name my-api --type api --runtime nodejs24 --region us-east-1 --team <slug> --org <slug>
+
+# Create and wait for domain to become active
+septiembre apps create --name my-app --type web --region us-east-1 --org <slug> --wait
+
+# Delete an app (async teardown — --yes required)
+septiembre apps delete <app-id> --org <slug> --yes
 ```
+
+**App types**: `web` | `web-ssr` | `api` | `sse`
+**Runtimes** (required for non-web types): `nodejs24` | `python314` | `go126`
+**Regions**: `us-east-1` | `us-east-2` | `sa-east-1`
+
+The `url` field in `apps get` output is composed as `https://{subdomain}.septiembre.co`.
+Override the domain suffix with `SEPTIEMBRE_DOMAIN_SUFFIX` or the `domain_suffix` config key.
 
 ### Environment variables
 
@@ -173,9 +196,23 @@ septiembre env set <app-id> --org <slug> KEY=value OTHER=value2
 ```bash
 septiembre deploys trigger <app-id> --org <slug> --tag v1.2.3
 septiembre deploys trigger <app-id> --org <slug> --tag v1.2.3 --env-id <uuid>
+
+# Trigger and wait for terminal state (success|failed|cancelled)
+septiembre deploys trigger <app-id> --org <slug> --tag v1.2.3 --wait
+
 septiembre deploys list <app-id> --org <slug>
 septiembre deploys status <app-id> <deploy-id> --org <slug>
 ```
+
+**`--wait` flags** (available on `apps create` and `deploys trigger`):
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--wait` | false | Block until terminal state |
+| `--wait-interval` | 5s | Polling interval |
+| `--wait-timeout` | 10m (create) / 15m (deploys) | Max wait time |
+
+Timeout exits 1 with `code: "wait_timeout"`. Non-success terminal exits 1 with `code: "domain_failed"` or `"deploy_failed"`.
 
 ### Logs
 
