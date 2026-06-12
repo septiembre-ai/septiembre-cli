@@ -1,0 +1,17 @@
+# Build output
+septiembre
+dist/
+
+# Go toolchain
+*.test
+*.out
+coverage.txt
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# goreleaser
+dist/
