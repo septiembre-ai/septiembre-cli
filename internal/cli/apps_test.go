@@ -145,6 +145,76 @@ func TestAppsGet_Success(t *testing.T) {
 	}
 }
 
+// ---- T16: appView url composition RED tests ----
+
+func TestAppsGet_URL_DefaultSuffix(t *testing.T) {
+	// App with subdomain "my-app" → url must be "https://my-app.septiembre.co".
+	const appJSON = `{"id":"app-1","org_id":"org-1","name":"my-app","label":"my-app","type":"web","aws_region":"us-east-1","github_repo_full":"","github_branch":"main","subdomain":"my-app","domain_status":"active","visibility":"private","is_active":true,"created_at":"2024-01-01T00:00:00Z"}`
+	handler := orgsAndAppsHandler("acme", "org-1", "", appJSON)
+	srv := newTestServer(t, handler)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	// Unset any domain suffix override so the default "septiembre.co" is used.
+	t.Setenv("SEPTIEMBRE_DOMAIN_SUFFIX", "")
+	err := exec("apps", "get", "app-1", "--org", "acme")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("apps get url default: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("apps get url default: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	wantURL := "https://my-app.septiembre.co"
+	if u, _ := got["url"].(string); u != wantURL {
+		t.Errorf("apps get url default: want url %q, got %q", wantURL, u)
+	}
+}
+
+func TestAppsGet_URL_EnvOverride(t *testing.T) {
+	const appJSON = `{"id":"app-1","org_id":"org-1","name":"my-app","label":"my-app","type":"web","aws_region":"us-east-1","github_repo_full":"","github_branch":"main","subdomain":"my-app","domain_status":"active","visibility":"private","is_active":true,"created_at":"2024-01-01T00:00:00Z"}`
+	handler := orgsAndAppsHandler("acme", "org-1", "", appJSON)
+	srv := newTestServer(t, handler)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	t.Setenv("SEPTIEMBRE_DOMAIN_SUFFIX", "example.com")
+	err := exec("apps", "get", "app-1", "--org", "acme")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("apps get url env: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("apps get url env: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	wantURL := "https://my-app.example.com"
+	if u, _ := got["url"].(string); u != wantURL {
+		t.Errorf("apps get url env: want url %q, got %q", wantURL, u)
+	}
+}
+
+func TestAppsGet_URL_EmptySubdomain_Omitted(t *testing.T) {
+	// App with empty subdomain → url field must be absent from output.
+	const appJSON = `{"id":"app-1","org_id":"org-1","name":"my-app","label":"my-app","type":"web","aws_region":"us-east-1","github_repo_full":"","github_branch":"main","subdomain":"","domain_status":"pending","visibility":"private","is_active":true,"created_at":"2024-01-01T00:00:00Z"}`
+	handler := orgsAndAppsHandler("acme", "org-1", "", appJSON)
+	srv := newTestServer(t, handler)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	t.Setenv("SEPTIEMBRE_DOMAIN_SUFFIX", "")
+	err := exec("apps", "get", "app-1", "--org", "acme")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("apps get url empty subdomain: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("apps get url empty subdomain: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	if _, present := got["url"]; present {
+		t.Errorf("apps get url empty subdomain: url field must be absent when subdomain is empty, got %q", got["url"])
+	}
+}
+
 // ---- T14: apps delete RED tests ----
 
 func TestAppsDelete_WithYes_202Deleting(t *testing.T) {
