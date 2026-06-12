@@ -31,6 +31,16 @@ If the environment has not been provisioned yet, an empty events array is return
 				return err
 			}
 
+			// The logs route requires an environment ID; resolve the app's
+			// default environment when the flag is omitted.
+			if envID == "" {
+				env, envErr := c.DefaultEnvironment(cmd.Context(), orgID, args[0])
+				if envErr != nil {
+					return handleAPIError(r, envErr)
+				}
+				envID = env.ID
+			}
+
 			logs, err := c.GetLogs(cmd.Context(), orgID, args[0], envID)
 			if err != nil {
 				return handleAPIError(r, err)

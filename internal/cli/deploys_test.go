@@ -109,13 +109,23 @@ func TestDeploysStatus_Success(t *testing.T) {
 }
 
 // ---- logs: success (non-streaming snapshot) ----
-// Note: Go's http.ServeMux normalises "environments//logs" (empty envID) to
-// "environments/logs", so the handler is registered at the cleaned path.
+// When --env-id is omitted the CLI resolves the app's default environment via
+// GET /environments first, then fetches logs at the env-scoped path — the
+// exact route shape chi serves in cloud-api (no empty path segments).
 
-func TestLogs_Snapshot(t *testing.T) {
+const testEnvID = "env-1"
+
+func registerEnvironmentsHandler(mux *http.ServeMux) {
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/environments", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"` + testEnvID + `","app_id":"` + testAppID + `","name":"production","branch":"main","is_default":true,"is_active":true}]`))
+	})
+}
+
+func TestLogs_SnapshotResolvesDefaultEnv(t *testing.T) {
 	mux := deploys_mux()
-	// Empty --env-id → path "/environments//logs" → mux normalises to "/environments/logs".
-	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/environments/logs", func(w http.ResponseWriter, r *http.Request) {
+	registerEnvironmentsHandler(mux)
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/environments/"+testEnvID+"/logs", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"function_name":"my-fn","log_group":"/aws/lambda/my-fn","events":[{"timestamp":1700000000000,"message":"hello"}]}`))
 	})
@@ -133,11 +143,30 @@ func TestLogs_Snapshot(t *testing.T) {
 	}
 }
 
+// ---- logs: explicit --env-id skips environment resolution ----
+
+func TestLogs_ExplicitEnvID(t *testing.T) {
+	mux := deploys_mux()
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/environments/"+testEnvID+"/logs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"function_name":"my-fn","log_group":"/aws/lambda/my-fn","events":[]}`))
+	})
+	srv := newTestServer(t, mux)
+	_, _, exec := newTestRoot(t, srv)
+
+	err := exec("logs", testAppID, "--org", testOrgSlug, "--env-id", testEnvID)
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("logs --env-id: want exit 0, got %d", got)
+	}
+}
+
 // ---- logs: 204 No Content returns empty (not an error) ----
 
 func TestLogs_EmptyOn204(t *testing.T) {
 	mux := deploys_mux()
-	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/environments/logs", func(w http.ResponseWriter, r *http.Request) {
+	registerEnvironmentsHandler(mux)
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/environments/"+testEnvID+"/logs", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	srv := newTestServer(t, mux)

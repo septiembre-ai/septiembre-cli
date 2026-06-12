@@ -2,12 +2,15 @@ package client
 
 import "context"
 
-// AuthUser holds the identity of the currently authenticated caller as returned
-// by GET /api/v1/auth/me. Fields mirror the AuthUser set by the middleware.
+// AuthUser is the caller's profile as returned by GET /api/v1/auth/me.
+// Fields mirror the cloud-api user object.
 type AuthUser struct {
-	Sub    string   `json:"sub"`
-	Email  string   `json:"email"`
-	Groups []string `json:"groups"`
+	ID         string `json:"id"`
+	CognitoSub string `json:"cognito_sub"`
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	IsActive   bool   `json:"is_active"`
+	CreatedAt  string `json:"created_at"`
 }
 
 // Whoami returns the identity of the caller authenticated by the current token.

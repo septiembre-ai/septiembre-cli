@@ -629,3 +629,62 @@ func TestGetLogs_NoContent_ReturnsEmpty(t *testing.T) {
 		t.Errorf("len(events) = %d, want 0", len(logs.Events))
 	}
 }
+
+// ---- Whoami decodes the real /auth/me shape ----
+
+func TestWhoamiDecodesAuthMeShape(t *testing.T) {
+	t.Parallel()
+
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/auth/me" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"u-1","cognito_sub":"sub-1","email":"a@b.co","name":"Ana","is_active":true,"created_at":"2026-01-01T00:00:00Z"}`))
+	})
+
+	u, err := c.Whoami(context.Background())
+	if err != nil {
+		t.Fatalf("Whoami: %v", err)
+	}
+	if u.CognitoSub != "sub-1" || u.Email != "a@b.co" || u.Name != "Ana" || !u.IsActive {
+		t.Errorf("Whoami decoded wrong fields: %+v", u)
+	}
+}
+
+// ---- Environments ----
+
+func TestDefaultEnvironmentPicksIsDefault(t *testing.T) {
+	t.Parallel()
+
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+			{"id":"env-a","app_id":"app-1","name":"preview","branch":"dev","is_default":false,"is_active":true},
+			{"id":"env-b","app_id":"app-1","name":"production","branch":"main","is_default":true,"is_active":true}
+		]`))
+	})
+
+	env, err := c.DefaultEnvironment(context.Background(), "org-1", "app-1")
+	if err != nil {
+		t.Fatalf("DefaultEnvironment: %v", err)
+	}
+	if env.ID != "env-b" {
+		t.Errorf("DefaultEnvironment = %s, want env-b (is_default)", env.ID)
+	}
+}
+
+func TestDefaultEnvironmentNoEnvironments(t *testing.T) {
+	t.Parallel()
+
+	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	})
+
+	_, err := c.DefaultEnvironment(context.Background(), "org-1", "app-1")
+	if err == nil {
+		t.Fatal("expected error when app has no environments")
+	}
+}
