@@ -108,6 +108,146 @@ func TestDeploysStatus_Success(t *testing.T) {
 	}
 }
 
+// ---- T18: deploys trigger --wait RED tests ----
+
+func TestDeploysTrigger_Wait_Success(t *testing.T) {
+	mux := deploys_mux()
+	// POST → create deployment (pending).
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/deployments", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "expected POST", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"` + testDeployID + `","app_id":"` + testAppID + `","status":"pending","release_tag":"v1.0.0","environment_id":"","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}`))
+	})
+	// GET → poll; return pending once, then success.
+	var polls int32
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/deployments/"+testDeployID, func(w http.ResponseWriter, _ *http.Request) {
+		n := int(polls)
+		polls++
+		status := "pending"
+		if n >= 1 {
+			status = "success"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"` + testDeployID + `","app_id":"` + testAppID + `","status":"` + status + `","release_tag":"v1.0.0","environment_id":"","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}`))
+	})
+	srv := newTestServer(t, mux)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	err := exec("deploys", "trigger", testAppID, "--org", testOrgSlug, "--tag", "v1.0.0",
+		"--wait", "--wait-interval", "1ms", "--wait-timeout", "5s")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("deploys trigger --wait success: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("deploys trigger --wait success: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	if status, _ := got["status"].(string); status != "success" {
+		t.Errorf("deploys trigger --wait success: want status success, got %q", status)
+	}
+}
+
+func TestDeploysTrigger_Wait_Failed_ExitGeneral(t *testing.T) {
+	mux := deploys_mux()
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/deployments", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "expected POST", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"` + testDeployID + `","app_id":"` + testAppID + `","status":"pending","release_tag":"v1.0.0","environment_id":"","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}`))
+	})
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/deployments/"+testDeployID, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"` + testDeployID + `","app_id":"` + testAppID + `","status":"failed","release_tag":"v1.0.0","environment_id":"","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}`))
+	})
+	srv := newTestServer(t, mux)
+	_, errBuf, exec := newTestRoot(t, srv)
+
+	err := exec("deploys", "trigger", testAppID, "--org", testOrgSlug, "--tag", "v1.0.0",
+		"--wait", "--wait-interval", "1ms", "--wait-timeout", "5s")
+
+	if got := exitCode(err); got != output.ExitGeneral {
+		t.Errorf("deploys trigger --wait failed: want exit %d, got %d; stderr: %s", output.ExitGeneral, got, errBuf)
+	}
+	var env map[string]any
+	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
+		t.Fatalf("deploys trigger --wait failed: stderr not JSON: %v\nstderr: %s", jsonErr, errBuf)
+	}
+	if code, _ := env["code"].(string); code != "deploy_failed" {
+		t.Errorf("deploys trigger --wait failed: want code deploy_failed, got %q", code)
+	}
+}
+
+func TestDeploysTrigger_Wait_Timeout_ExitGeneral(t *testing.T) {
+	mux := deploys_mux()
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/deployments", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "expected POST", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"` + testDeployID + `","app_id":"` + testAppID + `","status":"pending","release_tag":"v1.0.0","environment_id":"","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}`))
+	})
+	// Poll always returns pending — forces timeout.
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/deployments/"+testDeployID, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"` + testDeployID + `","app_id":"` + testAppID + `","status":"pending","release_tag":"v1.0.0","environment_id":"","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}`))
+	})
+	srv := newTestServer(t, mux)
+	_, errBuf, exec := newTestRoot(t, srv)
+
+	err := exec("deploys", "trigger", testAppID, "--org", testOrgSlug, "--tag", "v1.0.0",
+		"--wait", "--wait-interval", "1ms", "--wait-timeout", "10ms")
+
+	if got := exitCode(err); got != output.ExitGeneral {
+		t.Errorf("deploys trigger --wait timeout: want exit %d, got %d; stderr: %s", output.ExitGeneral, got, errBuf)
+	}
+	var env map[string]any
+	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
+		t.Fatalf("deploys trigger --wait timeout: stderr not JSON: %v\nstderr: %s", jsonErr, errBuf)
+	}
+	if code, _ := env["code"].(string); code != "wait_timeout" {
+		t.Errorf("deploys trigger --wait timeout: want code wait_timeout, got %q", code)
+	}
+}
+
+func TestDeploysTrigger_NoWait_Unchanged(t *testing.T) {
+	mux := deploys_mux()
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/deployments", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "expected POST", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"` + testDeployID + `","app_id":"` + testAppID + `","status":"pending","release_tag":"v1.0.0","environment_id":"","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}`))
+	})
+	srv := newTestServer(t, mux)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	// Without --wait the command returns immediately with pending status.
+	err := exec("deploys", "trigger", testAppID, "--org", testOrgSlug, "--tag", "v1.0.0")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("deploys trigger no --wait: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("deploys trigger no --wait: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	if status, _ := got["status"].(string); status != "pending" {
+		t.Errorf("deploys trigger no --wait: want status pending, got %q", status)
+	}
+}
+
 // ---- logs: success (non-streaming snapshot) ----
 // When --env-id is omitted the CLI resolves the app's default environment via
 // GET /environments first, then fetches logs at the env-scoped path — the

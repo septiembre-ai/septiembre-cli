@@ -1,9 +1,19 @@
 package cli
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/septiembre-ai/septiembre-cli/internal/client"
 	"github.com/septiembre-ai/septiembre-cli/internal/output"
 	"github.com/spf13/cobra"
 )
+
+// errDeployFailed is a sentinel returned by the deploys trigger poll function
+// when the deployment reaches a non-success terminal state (failed|cancelled).
+var errDeployFailed = errors.New("deploy_failed")
 
 // NewDeploysCmd returns the `deploys` command group.
 func NewDeploysCmd() *cobra.Command {
@@ -26,7 +36,7 @@ AGENT USAGE
 	return deploys
 }
 
-// newDeploysTriggerCmd returns `deploys trigger <app-id> [--tag <tag>] [--env-id <id>]`.
+// newDeploysTriggerCmd returns `deploys trigger <app-id> [--tag <tag>] [--env-id <id>] [--wait]`.
 func newDeploysTriggerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "trigger <app-id>",
@@ -35,6 +45,9 @@ func newDeploysTriggerCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tag, _ := cmd.Flags().GetString("tag")
 			envID, _ := cmd.Flags().GetString("env-id")
+			wait, _ := cmd.Flags().GetBool("wait")
+			waitInterval, _ := cmd.Flags().GetDuration("wait-interval")
+			waitTimeout, _ := cmd.Flags().GetDuration("wait-timeout")
 
 			c, r, err := newAuthenticatedClient(cmd)
 			if err != nil {
@@ -50,6 +63,45 @@ func newDeploysTriggerCmd() *cobra.Command {
 			if err != nil {
 				return handleAPIError(r, err)
 			}
+
+			if wait {
+				var finalDeploy *client.Deployment
+				pollErr := pollUntil(cmd.Context(), waitInterval, waitTimeout, func(ctx context.Context) (bool, error) {
+					d, gErr := c.GetDeployment(ctx, orgID, args[0], deploy.ID)
+					if gErr != nil {
+						return false, gErr
+					}
+					finalDeploy = d
+					switch d.Status {
+					case "success":
+						return true, nil
+					case "failed", "cancelled":
+						return false, errDeployFailed
+					}
+					return false, nil
+				})
+				if pollErr != nil {
+					if errors.Is(pollErr, errWaitTimeout) {
+						_ = r.RenderError(
+							fmt.Sprintf("timed out waiting for deployment %s to complete; check with 'deploys status %s %s --org <slug>'", deploy.ID, args[0], deploy.ID),
+							"wait_timeout",
+							-1,
+						)
+						return &ExitError{Code: output.ExitGeneral}
+					}
+					if errors.Is(pollErr, errDeployFailed) {
+						_ = r.RenderError(
+							fmt.Sprintf("deployment %s reached a failed terminal state; check with 'deploys status %s %s --org <slug>'", deploy.ID, args[0], deploy.ID),
+							"deploy_failed",
+							-1,
+						)
+						return &ExitError{Code: output.ExitGeneral}
+					}
+					return handleAPIError(r, pollErr)
+				}
+				deploy = finalDeploy
+			}
+
 			if err := r.Render(deploy); err != nil {
 				return &ExitError{Code: output.ExitGeneral}
 			}
@@ -58,6 +110,9 @@ func newDeploysTriggerCmd() *cobra.Command {
 	}
 	cmd.Flags().String("tag", "", "Release tag to deploy (e.g. v1.2.3). Required for API and SSE app types.")
 	cmd.Flags().String("env-id", "", "Environment UUID (defaults to the production environment when empty)")
+	cmd.Flags().Bool("wait", false, "Wait for deployment to reach a terminal state before returning")
+	cmd.Flags().Duration("wait-interval", 5*time.Second, "Polling interval when --wait is active")
+	cmd.Flags().Duration("wait-timeout", 15*time.Minute, "Maximum time to wait for deployment completion")
 	return cmd
 }
 
