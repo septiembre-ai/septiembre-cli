@@ -2,6 +2,20 @@
 
 Command-line interface for the [Septiembre cloud platform](https://cloud.septiembre.ai).
 
+## Quickstart (agents and CI)
+
+```bash
+# 1. Install
+go install github.com/septiembre-ai/septiembre-cli/cmd/septiembre@latest
+
+# 2. Set your personal access token (create one at POST /api/v1/auth/tokens)
+export SEPTIEMBRE_TOKEN=sapi_<hex>
+
+# 3. Run
+septiembre apps list                         # JSON array of your apps
+septiembre --help --json | jq '.commands'    # full command tree for LLM agents
+```
+
 ## Agent-first contract
 
 JSON is the **default** output format. All commands print structured JSON to stdout and JSON error envelopes to stderr. This makes every command trivially composable with `jq` and usable from LLM agents without any flag changes.
@@ -32,16 +46,41 @@ Exit codes:
 
 ## Install
 
-> Installation packages are available from v1.0.0 release. Until then, build from source.
+### Download a release binary (recommended)
+
+Pre-built binaries for Linux, macOS, and Windows are available on the
+[Releases page](https://github.com/septiembre-ai/septiembre-cli/releases).
+
+**macOS / Linux:**
+```bash
+# Replace VERSION and PLATFORM (darwin_arm64 | darwin_amd64 | linux_amd64 | linux_arm64)
+curl -L https://github.com/septiembre-ai/septiembre-cli/releases/latest/download/septiembre_VERSION_darwin_arm64.tar.gz \
+  | tar -xz && mv septiembre /usr/local/bin/
+```
+
+**Windows (PowerShell):**
+```powershell
+# Replace VERSION in the URL below
+$url = "https://github.com/septiembre-ai/septiembre-cli/releases/latest/download/septiembre_VERSION_windows_amd64.zip"
+Invoke-WebRequest $url -OutFile septiembre.zip
+Expand-Archive septiembre.zip -DestinationPath .
+Move-Item septiembre.exe "$env:USERPROFILE\bin\septiembre.exe"
+```
+
+Checksums are published alongside each release in `checksums.txt`.
+
+### Install with Go
 
 ```bash
 go install github.com/septiembre-ai/septiembre-cli/cmd/septiembre@latest
 ```
 
-Homebrew (coming in v1.0.0):
-```bash
-brew install septiembre-ai/tap/septiembre
-```
+Requires Go 1.23 or later. The binary is placed in `$GOBIN` (default `~/go/bin`).
+
+### Package managers (coming when the repo goes public)
+
+Homebrew tap and Scoop bucket distribution will be available once the repository
+is public. Follow the releases page for announcements.
 
 ## Authentication
 
