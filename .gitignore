@@ -1,5 +1,5 @@
-# Build output
-septiembre
+# Build output (root binary)
+/septiembre
 dist/
 
 # Go toolchain

@@ -1,0 +1,211 @@
+// Package cli defines the Cobra command tree for the septiembre CLI.
+//
+// AGENT DISCOVERABILITY NOTE
+// This CLI is agent-first. JSON is the default output format.
+// Run `septiembre --help --json` to get the full command tree as a
+// machine-readable JSON object. All commands emit JSON to stdout on success
+// and JSON to stderr on error, making them trivially composable with jq.
+package cli
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+
+	"github.com/septiembre-ai/septiembre-cli/internal/output"
+	"github.com/septiembre-ai/septiembre-cli/internal/version"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+)
+
+// globalFormat holds the value of the --output flag across the command tree.
+var globalFormat string
+
+// NewRootCmd builds and returns the root Cobra command.
+// The caller is responsible for calling Execute() and handling the returned exit code.
+func NewRootCmd() *cobra.Command {
+	root := &cobra.Command{
+		Use:   "septiembre",
+		Short: "Septiembre CLI — manage apps, deployments, and secrets",
+		Long: `septiembre is the command-line interface for the Septiembre cloud platform.
+
+AGENT USAGE
+  Default output is JSON. All commands print structured JSON to stdout and
+  JSON error envelopes to stderr. Use --output table for human-readable output.
+
+  Machine-readable command tree:
+    septiembre --help --json
+
+EXIT CODES
+  0  success
+  1  general / API error
+  2  auth error (401 / 403 / missing token)
+  3  not found (404)
+  4  validation / bad input (400 / 422)
+  5  network error (no HTTP response)
+
+AUTHENTICATION
+  Set SEPTIEMBRE_TOKEN to a personal access token (sapi_...) for CI and agents.
+  Create tokens: septiembre auth token create --description "ci"
+  Tokens are created at: POST https://api.septiembre.ai/api/v1/auth/tokens`,
+
+		// SilenceUsage prevents Cobra from printing usage on every error.
+		SilenceUsage: true,
+		// SilenceErrors lets main.go handle error printing as JSON to stderr.
+		SilenceErrors: true,
+	}
+
+	// Global persistent flags available on all subcommands.
+	root.PersistentFlags().StringVarP(&globalFormat, "output", "o", "json",
+		`Output format: json (default, agent-friendly) or table (human-readable)`)
+	root.PersistentFlags().String("org", "",
+		"Organization slug (overrides config default)")
+	root.PersistentFlags().String("config", "",
+		"Config file path (default: $XDG_CONFIG_HOME/septiembre/config.yaml)")
+	// --json persistent flag: used with --help to emit machine-readable command tree (spec B-09).
+	root.PersistentFlags().Bool("json", false,
+		"When used with --help, emit the command tree as machine-readable JSON")
+
+	// Custom help function: intercepts --help --json to emit agent-readable tree (spec B-09a).
+	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if wantsJSONHelp() {
+			emitHelpJSON(root)
+			return
+		}
+		// Default help output.
+		if err := cmd.Usage(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+	})
+
+	// Attach subcommands.
+	root.AddCommand(newVersionCmd())
+
+	// root RunE: --version emits JSON (spec B-10a); otherwise show help.
+	root.Flags().BoolP("version", "v", false, "Print version as JSON and exit")
+	root.RunE = func(cmd *cobra.Command, args []string) error {
+		versionFlag, _ := cmd.Flags().GetBool("version")
+		if versionFlag {
+			return runVersionJSON()
+		}
+		return cmd.Help()
+	}
+
+	return root
+}
+
+// wantsJSONHelp returns true when the user passed --json (anywhere in os.Args).
+// We check os.Args directly because cobra calls the help function before all
+// flags are necessarily parsed into their targets.
+func wantsJSONHelp() bool {
+	for _, arg := range os.Args {
+		if arg == "--json" {
+			return true
+		}
+	}
+	return false
+}
+
+// newVersionCmd returns the `septiembre version` subcommand (spec B-10).
+func newVersionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the CLI version, commit SHA, and build timestamp as JSON",
+		Long:  "Print build metadata as JSON. Fields: version, commit, built_at.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runVersionJSON()
+		},
+	}
+}
+
+// runVersionJSON emits version info as JSON per spec B-10a.
+func runVersionJSON() error {
+	out := map[string]string{
+		"version":  version.Version,
+		"commit":   version.Commit,
+		"built_at": version.BuiltAt,
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
+}
+
+// commandJSON is the shape emitted by --help --json (spec B-09).
+type commandJSON struct {
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Flags       []flagJSON    `json:"flags,omitempty"`
+	Subcommands []commandJSON `json:"subcommands,omitempty"`
+}
+
+type flagJSON struct {
+	Name        string `json:"name"`
+	Shorthand   string `json:"shorthand,omitempty"`
+	Description string `json:"description"`
+	Default     string `json:"default,omitempty"`
+}
+
+// emitHelpJSON walks the cobra command tree from root and writes the
+// machine-readable JSON representation to stdout (spec B-09a).
+func emitHelpJSON(root *cobra.Command) {
+	tree := buildCommandJSON(root)
+	payload := map[string]any{"commands": tree.Subcommands}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(payload)
+}
+
+func buildCommandJSON(cmd *cobra.Command) commandJSON {
+	node := commandJSON{
+		Name:        cmd.Name(),
+		Description: cmd.Short,
+	}
+
+	seen := make(map[string]bool)
+	appendFlag := func(f *pflag.Flag) {
+		if seen[f.Name] {
+			return
+		}
+		seen[f.Name] = true
+		node.Flags = append(node.Flags, flagJSON{
+			Name:        f.Name,
+			Shorthand:   f.Shorthand,
+			Description: f.Usage,
+			Default:     f.DefValue,
+		})
+	}
+	cmd.Flags().VisitAll(appendFlag)
+	cmd.PersistentFlags().VisitAll(appendFlag)
+
+	for _, sub := range cmd.Commands() {
+		if !sub.Hidden {
+			node.Subcommands = append(node.Subcommands, buildCommandJSON(sub))
+		}
+	}
+	return node
+}
+
+// OutputFormat returns the resolved output.Format from the --output flag.
+// Falls back to FormatJSON for any unrecognised value.
+func OutputFormat(cmd *cobra.Command) output.Format {
+	f, _ := cmd.Root().PersistentFlags().GetString("output")
+	switch output.Format(f) {
+	case output.FormatTable:
+		return output.FormatTable
+	default:
+		return output.FormatJSON
+	}
+}
+
+// WriteError writes a JSON error envelope to stderr and returns the exit code.
+// Commands should use this instead of writing to stderr directly.
+func WriteError(cmd *cobra.Command, message, code string, httpStatus int) int {
+	r := output.Default(OutputFormat(cmd))
+	return r.RenderError(message, code, httpStatus)
+}
+
+// Fatalf writes a JSON error to stderr and exits with the given code.
+func Fatalf(cmd *cobra.Command, exitCode int, message, code string, httpStatus int) {
+	WriteError(cmd, message, code, httpStatus)
+	os.Exit(exitCode)
+}
