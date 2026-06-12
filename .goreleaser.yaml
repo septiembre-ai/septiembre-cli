@@ -1,0 +1,87 @@
+version: 2
+
+project_name: septiembre
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: septiembre
+    main: ./cmd/septiembre
+    binary: septiembre
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/septiembre-ai/septiembre-cli/internal/version.Version={{.Version}}
+      - -X github.com/septiembre-ai/septiembre-cli/internal/version.Commit={{.Commit}}
+      - -X github.com/septiembre-ai/septiembre-cli/internal/version.BuiltAt={{.Date}}
+
+archives:
+  - id: septiembre
+    ids:
+      - septiembre
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "septiembre_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+      - "Merge branch"
+
+# ---------------------------------------------------------------------------
+# Homebrew tap and Scoop bucket distribution (PRIVATE REPO — NOT YET ACTIVE)
+#
+# These sections are intentionally commented out. The repository is currently
+# private. Homebrew tap publication requires a public tap repo
+# (septiembre-ai/homebrew-tap) and a HOMEBREW_TAP_GITHUB_TOKEN secret.
+# Scoop bucket publication requires a public bucket repo
+# (septiembre-ai/scoop-bucket) and a SCOOP_BUCKET_GITHUB_TOKEN secret.
+#
+# When the repo goes public, uncomment and configure both sections:
+#
+# brews:
+#   - name: septiembre
+#     repository:
+#       owner: septiembre-ai
+#       name: homebrew-tap
+#     directory: Formula
+#     homepage: https://cloud.septiembre.ai
+#     description: CLI for the Septiembre cloud platform
+#     license: MIT
+#     install: bin.install "septiembre"
+#     test: |
+#       system "#{bin}/septiembre", "--version"
+#
+# scoops:
+#   - name: septiembre
+#     repository:
+#       owner: septiembre-ai
+#       name: scoop-bucket
+#     homepage: https://cloud.septiembre.ai
+#     description: CLI for the Septiembre cloud platform
+#     license: MIT
+# ---------------------------------------------------------------------------
