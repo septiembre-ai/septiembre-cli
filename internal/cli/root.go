@@ -87,6 +87,7 @@ AUTHENTICATION
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(NewAuthCmd())
 	root.AddCommand(NewOrgsCmd())
+	root.AddCommand(NewAppsCmd())
 
 	// root RunE: --version emits JSON (spec B-10a); otherwise show help.
 	root.Flags().BoolP("version", "v", false, "Print version as JSON and exit")
