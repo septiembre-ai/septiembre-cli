@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-12
+
+Initial public release. Includes the full agent-first command surface: `auth` (whoami, token create/list/revoke), `orgs list`, `teams list`, `apps` (list, get, create, delete), `env` (get, set), `deploys` (trigger, list, status), `logs`, JSON-first output with `--output table`, machine-readable `--help --json`, and the 0–5 exit-code contract.
+
 ### Added
 
 - `teams list --org <slug>` — list all teams in an organization; output defaults to JSON, supports `--output table`.
