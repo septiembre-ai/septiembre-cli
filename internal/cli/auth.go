@@ -25,7 +25,7 @@ AGENT USAGE
     septiembre auth token create --name ci-deploy
     export SEPTIEMBRE_TOKEN=sapi_<hex>
 
-  Device-flow browser login is coming in a future release.`,
+  Browser/device-flow login requires cloud-api support and is not available yet.`,
 	}
 
 	auth.AddCommand(newAuthLoginCmd())
@@ -52,7 +52,6 @@ func newAuthLoginCmd() *cobra.Command {
 The token is verified with /api/v1/auth/me before it is persisted.
 
 Examples:
-  septiembre auth login --token sapi_<hex>
   printf '%s' "$SEPTIEMBRE_TOKEN" | septiembre auth login --token-stdin
 
 Tokens are created at: POST https://api.septiembre.ai/api/v1/auth/tokens.
@@ -88,7 +87,8 @@ Browser-based device-flow login is not available in cloud-api yet.`,
 			return nil
 		},
 	}
-	cmd.Flags().String("token", "", "Personal access token to verify and save (sapi_<hex>)")
+	cmd.Flags().String("token", "", "Personal access token to verify and save (prefer --token-stdin; command arguments can be visible in shell history)")
+	_ = cmd.Flags().MarkHidden("token")
 	cmd.Flags().Bool("token-stdin", false, "Read the personal access token from stdin")
 	return cmd
 }

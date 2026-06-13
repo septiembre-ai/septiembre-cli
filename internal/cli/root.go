@@ -177,6 +177,9 @@ func buildCommandJSON(cmd *cobra.Command) commandJSON {
 
 	seen := make(map[string]bool)
 	appendFlag := func(f *pflag.Flag) {
+		if f.Hidden {
+			return
+		}
 		if seen[f.Name] {
 			return
 		}

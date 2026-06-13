@@ -249,6 +249,21 @@ func TestHelpJSON_Parseable(t *testing.T) {
 	}
 }
 
+func TestHelpJSON_HidesAuthLoginTokenFlag(t *testing.T) {
+	outBuf, _, exec := newTestRoot(t, "")
+	err := exec("--help", "--json")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("--help --json: want exit 0, got %d", got)
+	}
+	if strings.Contains(outBuf.String(), "Personal access token to verify and save") {
+		t.Fatalf("--help --json should not advertise auth login --token; output:\n%s", outBuf)
+	}
+	if !strings.Contains(outBuf.String(), `"name": "token-stdin"`) {
+		t.Fatalf("--help --json should advertise auth login --token-stdin; output:\n%s", outBuf)
+	}
+}
+
 func TestRootHelp_AuthTokenExampleUsesNameFlag(t *testing.T) {
 	help := cli.NewRootCmd().Long
 	if strings.Contains(help, "--description") {

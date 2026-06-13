@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
+	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -29,7 +32,7 @@ SECURITY
 
 AGENT USAGE
   septiembre env get <app-id> --org <slug> | jq '.[] | select(.key=="API_KEY")'
-  septiembre env set <app-id> --org <slug> KEY=value OTHER=value2`,
+  printf 'API_KEY=...\n' | septiembre env set <app-id> --org <slug> --from-stdin`,
 	}
 	env.AddCommand(newEnvGetCmd())
 	env.AddCommand(newEnvSetCmd())
@@ -86,37 +89,26 @@ func newEnvGetCmd() *cobra.Command {
 // newEnvSetCmd returns `env set <app-id> KEY=VALUE...`.
 // This is a full replacement (PUT): omitted keys are deleted.
 func newEnvSetCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "set <app-id> KEY=VALUE [KEY=VALUE...]",
 		Short: "Set environment variables for an app (full replace — omitted keys are deleted)",
-		Args:  cobra.MinimumNArgs(2),
+		Long: `Set application environment variables with full replacement semantics.
+
+SECURITY
+  Prefer --from-stdin or --from-file for secret values. Passing KEY=VALUE as
+  command arguments can expose secrets in shell history and process listings.`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			appID := args[0]
 			pairs := args[1:]
+			fromFile, _ := cmd.Flags().GetString("from-file")
+			fromStdin, _ := cmd.Flags().GetBool("from-stdin")
 
-			vars := make(map[string]string, len(pairs))
-			for _, kv := range pairs {
-				idx := strings.IndexByte(kv, '=')
-				if idx < 0 {
-					r := output.NewRenderer(OutputFormat(cmd), cmd.OutOrStdout(), cmd.ErrOrStderr())
-					r.RenderError(
-						fmt.Sprintf("invalid argument %q: expected KEY=VALUE format", kv),
-						"validation_error",
-						-1,
-					)
-					return &ExitError{Code: output.ExitValidation}
-				}
-				key := kv[:idx]
-				if key == "" {
-					r := output.NewRenderer(OutputFormat(cmd), cmd.OutOrStdout(), cmd.ErrOrStderr())
-					r.RenderError(
-						fmt.Sprintf("invalid argument %q: key must not be empty", kv),
-						"validation_error",
-						-1,
-					)
-					return &ExitError{Code: output.ExitValidation}
-				}
-				vars[key] = kv[idx+1:]
+			vars, parseErr := envVarsFromInput(cmd, pairs, fromFile, fromStdin)
+			if parseErr != nil {
+				r := output.NewRenderer(OutputFormat(cmd), cmd.OutOrStdout(), cmd.ErrOrStderr())
+				r.RenderError(parseErr.Error(), "validation_error", -1)
+				return &ExitError{Code: output.ExitValidation}
 			}
 
 			c, r, err := newAuthenticatedClient(cmd)
@@ -139,4 +131,77 @@ func newEnvSetCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().String("from-file", "", "Read KEY=VALUE entries from a file (one per line)")
+	cmd.Flags().Bool("from-stdin", false, "Read KEY=VALUE entries from stdin (one per line)")
+	return cmd
+}
+
+func envVarsFromInput(cmd *cobra.Command, pairs []string, fromFile string, fromStdin bool) (map[string]string, error) {
+	sources := 0
+	if len(pairs) > 0 {
+		sources++
+	}
+	if fromFile != "" {
+		sources++
+	}
+	if fromStdin {
+		sources++
+	}
+	if sources == 0 {
+		return nil, fmt.Errorf("provide KEY=VALUE arguments, --from-file, or --from-stdin")
+	}
+	if sources > 1 {
+		return nil, fmt.Errorf("use only one env input source: KEY=VALUE arguments, --from-file, or --from-stdin")
+	}
+
+	switch {
+	case len(pairs) > 0:
+		return parseEnvPairs(pairs)
+	case fromFile != "":
+		f, err := os.Open(fromFile)
+		if err != nil {
+			return nil, fmt.Errorf("read --from-file: %w", err)
+		}
+		defer f.Close()
+		return parseEnvLines(f)
+	case fromStdin:
+		return parseEnvLines(cmd.InOrStdin())
+	default:
+		return nil, fmt.Errorf("provide KEY=VALUE arguments, --from-file, or --from-stdin")
+	}
+}
+
+func parseEnvLines(r io.Reader) (map[string]string, error) {
+	scanner := bufio.NewScanner(r)
+	pairs := make([]string, 0)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		pairs = append(pairs, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read env input: %w", err)
+	}
+	return parseEnvPairs(pairs)
+}
+
+func parseEnvPairs(pairs []string) (map[string]string, error) {
+	vars := make(map[string]string, len(pairs))
+	for _, kv := range pairs {
+		idx := strings.IndexByte(kv, '=')
+		if idx < 0 {
+			return nil, fmt.Errorf("invalid argument %q: expected KEY=VALUE format", kv)
+		}
+		key := kv[:idx]
+		if key == "" {
+			return nil, fmt.Errorf("invalid argument %q: key must not be empty", kv)
+		}
+		vars[key] = kv[idx+1:]
+	}
+	if len(vars) == 0 {
+		return nil, fmt.Errorf("env input is empty")
+	}
+	return vars, nil
 }
