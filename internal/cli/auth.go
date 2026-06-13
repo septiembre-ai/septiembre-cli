@@ -1,10 +1,14 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"strings"
 	"time"
 
+	"github.com/septiembre-ai/septiembre-cli/internal/client"
+	"github.com/septiembre-ai/septiembre-cli/internal/credentials"
 	"github.com/septiembre-ai/septiembre-cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -30,32 +34,87 @@ AGENT USAGE
 	return auth
 }
 
-// newAuthLoginCmd returns the `auth login` stub command (spec B-04).
-// Device-flow login is a future fast-follow; v1 uses PATs for headless auth.
+type loginOutput struct {
+	Status     string           `json:"status"`
+	ConfigPath string           `json:"config_path"`
+	User       *client.AuthUser `json:"user"`
+}
+
+// newAuthLoginCmd returns the `auth login` command (spec B-04).
+// Until browser device-flow exists in cloud-api, this command bootstraps login
+// from a PAT, verifies it with /auth/me, then persists it to the config file.
 func newAuthLoginCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate interactively (coming soon — use SEPTIEMBRE_TOKEN for now)",
-		Long: `Browser-based device-flow login is not yet available.
+		Short: "Authenticate with a personal access token",
+		Long: `Authenticate the CLI by saving a personal access token (PAT) to the config file.
 
-For CI and agents, use a personal access token instead:
-  1. Create a token:  septiembre auth token create --name ci-deploy
-  2. Set env var:     export SEPTIEMBRE_TOKEN=sapi_<hex>
-  3. Verify:         septiembre auth whoami
+The token is verified with /api/v1/auth/me before it is persisted.
 
-Tokens are created at: POST https://api.septiembre.ai/api/v1/auth/tokens`,
+Examples:
+  septiembre auth login --token sapi_<hex>
+  printf '%s' "$SEPTIEMBRE_TOKEN" | septiembre auth login --token-stdin
+
+Tokens are created at: POST https://api.septiembre.ai/api/v1/auth/tokens.
+Browser-based device-flow login is not available in cloud-api yet.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			enc := json.NewEncoder(cmd.ErrOrStderr())
-			enc.SetIndent("", "  ")
-			_ = enc.Encode(map[string]any{
-				"error": "device-flow login is not yet available — " +
-					"set SEPTIEMBRE_TOKEN to a PAT (sapi_<hex>) for CI/agents. " +
-					"Create one: septiembre auth token create --name <name>",
-				"code": "not_implemented",
-			})
-			return &ExitError{Code: output.ExitGeneral}
+			r := output.NewRenderer(OutputFormat(cmd), cmd.OutOrStdout(), cmd.ErrOrStderr())
+
+			token, err := loginTokenFromFlagsOrEnv(cmd)
+			if err != nil {
+				r.RenderError(err.Error(), "validation_error", -1)
+				return &ExitError{Code: output.ExitValidation}
+			}
+
+			configPath := configFlagOrDefault(cmd)
+			c := client.New(credentials.APIBaseURLFromPath(configPath), token)
+			user, err := c.Whoami(cmd.Context())
+			if err != nil {
+				return handleAPIError(r, err)
+			}
+
+			if err := credentials.SaveToken(configPath, token); err != nil {
+				r.RenderError(fmt.Sprintf("failed to save token: %v", err), "config_error", 500)
+				return &ExitError{Code: output.ExitGeneral}
+			}
+
+			if err := r.Render(loginOutput{
+				Status:     "authenticated",
+				ConfigPath: configPath,
+				User:       user,
+			}); err != nil {
+				return &ExitError{Code: output.ExitGeneral}
+			}
+			return nil
 		},
 	}
+	cmd.Flags().String("token", "", "Personal access token to verify and save (sapi_<hex>)")
+	cmd.Flags().Bool("token-stdin", false, "Read the personal access token from stdin")
+	return cmd
+}
+
+func loginTokenFromFlagsOrEnv(cmd *cobra.Command) (string, error) {
+	token, _ := cmd.Flags().GetString("token")
+	token = strings.TrimSpace(token)
+
+	tokenStdin, _ := cmd.Flags().GetBool("token-stdin")
+	if token != "" && tokenStdin {
+		return "", fmt.Errorf("use either --token or --token-stdin, not both")
+	}
+	if tokenStdin {
+		data, err := io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return "", fmt.Errorf("read token from stdin: %w", err)
+		}
+		token = strings.TrimSpace(string(data))
+	}
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("SEPTIEMBRE_TOKEN"))
+	}
+	if token == "" {
+		return "", fmt.Errorf("provide a personal access token with --token, --token-stdin, or SEPTIEMBRE_TOKEN")
+	}
+	return token, nil
 }
 
 // newAuthWhoamiCmd returns the `auth whoami` command.

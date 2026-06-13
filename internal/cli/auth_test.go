@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -61,21 +63,138 @@ func exitCode(err error) int {
 	return output.ExitGeneral
 }
 
-// ---- auth login stub (spec: must not look like a crash) ----
+// ---- auth login requires a token source ----
 
-func TestAuthLogin_Stub(t *testing.T) {
+func TestAuthLogin_MissingToken(t *testing.T) {
 	_, errBuf, exec := newTestRoot(t, "")
+	t.Setenv("SEPTIEMBRE_TOKEN", "")
 	err := exec("auth", "login")
 
-	if got := exitCode(err); got != output.ExitGeneral {
-		t.Errorf("auth login: want exit %d, got %d", output.ExitGeneral, got)
+	if got := exitCode(err); got != output.ExitValidation {
+		t.Errorf("auth login missing token: want exit %d, got %d", output.ExitValidation, got)
 	}
 	var env map[string]any
 	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
 		t.Fatalf("auth login: stderr is not JSON: %v\nstderr: %s", jsonErr, errBuf)
 	}
-	if code, _ := env["code"].(string); code != "not_implemented" {
-		t.Errorf("auth login: want code not_implemented, got %q", code)
+	if code, _ := env["code"].(string); code != "validation_error" {
+		t.Errorf("auth login missing token: want code validation_error, got %q", code)
+	}
+}
+
+func TestAuthLogin_TokenFlagSavesVerifiedToken(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/auth/me" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer sapi_login_token" {
+			t.Errorf("Authorization = %q, want Bearer sapi_login_token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"u-1","cognito_sub":"sub-1","email":"ana@example.com","name":"Ana","is_active":true,"created_at":"2026-01-01T00:00:00Z"}`))
+	})
+	srv := newTestServer(t, handler)
+	outBuf, _, exec := newTestRoot(t, srv)
+	t.Setenv("SEPTIEMBRE_TOKEN", "")
+
+	err := exec("--config", cfgPath, "auth", "login", "--token", "sapi_login_token")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("auth login: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("auth login: stdout not JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	if status, _ := got["status"].(string); status != "authenticated" {
+		t.Errorf("auth login: want status authenticated, got %q", status)
+	}
+	data, readErr := os.ReadFile(cfgPath)
+	if readErr != nil {
+		t.Fatalf("read saved config: %v", readErr)
+	}
+	if !strings.Contains(string(data), "sapi_login_token") {
+		t.Fatalf("saved config missing token:\n%s", data)
+	}
+	info, statErr := os.Stat(cfgPath)
+	if statErr != nil {
+		t.Fatalf("stat saved config: %v", statErr)
+	}
+	if mode := info.Mode().Perm(); mode != 0600 {
+		t.Errorf("config mode = %04o, want 0600", mode)
+	}
+}
+
+func TestAuthLogin_TokenStdinSavesVerifiedToken(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/auth/me" {
+			http.NotFound(w, r)
+			return
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer sapi_stdin_token" {
+			t.Errorf("Authorization = %q, want Bearer sapi_stdin_token", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"u-1","cognito_sub":"sub-1","email":"ana@example.com","name":"Ana","is_active":true,"created_at":"2026-01-01T00:00:00Z"}`))
+	})
+	srv := newTestServer(t, handler)
+	t.Setenv("SEPTIEMBRE_API_URL", srv)
+	t.Setenv("SEPTIEMBRE_TOKEN", "")
+
+	outBuf := new(bytes.Buffer)
+	errBuf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetIn(strings.NewReader("sapi_stdin_token\n"))
+	root.SetOut(outBuf)
+	root.SetErr(errBuf)
+	root.SetArgs([]string{"--config", cfgPath, "auth", "login", "--token-stdin"})
+
+	err := root.Execute()
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("auth login --token-stdin: want exit 0, got %d; stderr: %s", got, errBuf)
+	}
+	data, readErr := os.ReadFile(cfgPath)
+	if readErr != nil {
+		t.Fatalf("read saved config: %v", readErr)
+	}
+	if !strings.Contains(string(data), "sapi_stdin_token") {
+		t.Fatalf("saved config missing stdin token:\n%s", data)
+	}
+}
+
+func TestAuthLogin_InvalidTokenDoesNotSave(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/auth/me" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid token"}`))
+	})
+	srv := newTestServer(t, handler)
+	_, errBuf, exec := newTestRoot(t, srv)
+	t.Setenv("SEPTIEMBRE_TOKEN", "")
+
+	err := exec("--config", cfgPath, "auth", "login", "--token", "sapi_bad_token")
+
+	if got := exitCode(err); got != output.ExitAuth {
+		t.Errorf("auth login invalid token: want exit %d, got %d; stderr: %s", output.ExitAuth, got, errBuf)
+	}
+	var env map[string]any
+	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
+		t.Fatalf("auth login invalid token: stderr not JSON: %v\nstderr: %s", jsonErr, errBuf)
+	}
+	if code, _ := env["code"].(string); code != "auth_error" {
+		t.Errorf("auth login invalid token: want code auth_error, got %q", code)
+	}
+	if _, statErr := os.Stat(cfgPath); !os.IsNotExist(statErr) {
+		t.Fatalf("invalid login should not write config; stat err=%v", statErr)
 	}
 }
 
