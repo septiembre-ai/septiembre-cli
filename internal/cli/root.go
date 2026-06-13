@@ -83,6 +83,11 @@ GLOBAL FLAG VALIDATION
 			emitHelpJSON(root, cmd.Root().OutOrStdout())
 			return
 		}
+		// Brand banner on the root help only, and only on an interactive TTY
+		// (printBanner self-gates). Subcommand help stays clean.
+		if cmd == cmd.Root() {
+			printBanner(cmd.OutOrStdout())
+		}
 		// Default help output. Cobra's Usage() template omits Long, so print it
 		// explicitly before the generated usage/flags section. This keeps the
 		// validation notes in each command's help visible to humans while preserving
@@ -105,6 +110,7 @@ GLOBAL FLAG VALIDATION
 	root.AddCommand(NewEnvCmd())
 	root.AddCommand(NewDeploysCmd())
 	root.AddCommand(NewLogsCmd())
+	root.AddCommand(NewUpgradeCmd())
 
 	// root RunE: --version emits JSON (spec B-10a); otherwise show help.
 	root.Flags().BoolP("version", "v", false, "Print version as JSON and exit")
