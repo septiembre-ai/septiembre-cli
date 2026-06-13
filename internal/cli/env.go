@@ -45,7 +45,13 @@ func newEnvGetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get <app-id>",
 		Short: "Get environment variables for an app (values masked by default)",
-		Args:  cobra.ExactArgs(1),
+		Long: `Get environment variables for an application.
+
+VALIDATION / INPUTS
+  <app-id>: application ID returned by apps list/create.
+  --org: required organization slug unless a default org is configured.
+  --reveal: prints plaintext secret values; omitted values are masked as ***.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reveal, _ := cmd.Flags().GetBool("reveal")
 
@@ -82,7 +88,7 @@ func newEnvGetCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().Bool("reveal", false, "Show plaintext env values (default: masked as ***)")
+	cmd.Flags().Bool("reveal", false, "Show plaintext env values; default masks values as ***")
 	return cmd
 }
 
@@ -96,7 +102,16 @@ func newEnvSetCmd() *cobra.Command {
 
 SECURITY
   Prefer --from-stdin or --from-file for secret values. Passing KEY=VALUE as
-  command arguments can expose secrets in shell history and process listings.`,
+  command arguments can expose secrets in shell history and process listings.
+
+VALIDATION / INPUTS
+  <app-id>: application ID returned by apps list/create.
+  KEY=VALUE: one or more entries; key must not be empty and value may be empty.
+  --from-file/--from-stdin: one KEY=VALUE entry per line; blank lines and lines
+                            starting with # are ignored.
+  Input sources: use exactly one of KEY=VALUE arguments, --from-file, or
+                 --from-stdin.
+  Semantics: full replacement; omitted keys are deleted.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			appID := args[0]
@@ -131,8 +146,8 @@ SECURITY
 			return nil
 		},
 	}
-	cmd.Flags().String("from-file", "", "Read KEY=VALUE entries from a file (one per line)")
-	cmd.Flags().Bool("from-stdin", false, "Read KEY=VALUE entries from stdin (one per line)")
+	cmd.Flags().String("from-file", "", "Read KEY=VALUE entries from a file, one per line; exclusive with args and --from-stdin")
+	cmd.Flags().Bool("from-stdin", false, "Read KEY=VALUE entries from stdin, one per line; exclusive with args and --from-file")
 	return cmd
 }
 
@@ -162,8 +177,15 @@ func envVarsFromInput(cmd *cobra.Command, pairs []string, fromFile string, fromS
 		if err != nil {
 			return nil, fmt.Errorf("read --from-file: %w", err)
 		}
-		defer f.Close()
-		return parseEnvLines(f)
+		vars, parseErr := parseEnvLines(f)
+		closeErr := f.Close()
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close --from-file: %w", closeErr)
+		}
+		return vars, nil
 	case fromStdin:
 		return parseEnvLines(cmd.InOrStdin())
 	default:

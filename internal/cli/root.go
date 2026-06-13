@@ -48,7 +48,13 @@ EXIT CODES
 AUTHENTICATION
   Set SEPTIEMBRE_TOKEN to a personal access token (sapi_...) for CI and agents.
   Create tokens: septiembre auth token create --name "ci"
-  Tokens are created at: POST https://api.septiembre.ai/api/v1/auth/tokens`,
+  Tokens are created at: POST https://api.septiembre.ai/api/v1/auth/tokens
+
+GLOBAL FLAG VALIDATION
+  --output: one of json|table. json is the default and safest for automation.
+  --org: organization slug used to resolve org-scoped API routes.
+  --config: path to a septiembre config YAML file.
+  --json: only affects help output when combined with --help.`,
 
 		// SilenceUsage prevents Cobra from printing usage on every error.
 		SilenceUsage: true,
@@ -58,11 +64,11 @@ AUTHENTICATION
 
 	// Global persistent flags available on all subcommands.
 	root.PersistentFlags().StringVarP(&globalFormat, "output", "o", "json",
-		`Output format: json (default, agent-friendly) or table (human-readable)`)
+		`Output format: one of json|table; json is the default and agent-friendly`)
 	root.PersistentFlags().String("org", "",
-		"Organization slug (overrides config default)")
+		"Organization slug; overrides config default for org-scoped commands")
 	root.PersistentFlags().String("config", "",
-		"Config file path (default: $XDG_CONFIG_HOME/septiembre/config.yaml)")
+		"Config YAML file path; defaults to $XDG_CONFIG_HOME/septiembre/config.yaml")
 	// --json persistent flag: used with --help to emit machine-readable command tree (spec B-09).
 	root.PersistentFlags().Bool("json", false,
 		"When used with --help, emit the command tree as machine-readable JSON")
@@ -77,9 +83,16 @@ AUTHENTICATION
 			emitHelpJSON(root, cmd.Root().OutOrStdout())
 			return
 		}
-		// Default help output.
+		// Default help output. Cobra's Usage() template omits Long, so print it
+		// explicitly before the generated usage/flags section. This keeps the
+		// validation notes in each command's help visible to humans while preserving
+		// the custom --help --json path for agents.
+		if cmd.Long != "" {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), cmd.Long)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout())
+		}
 		if err := cmd.Usage(); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+			_, _ = fmt.Fprintln(os.Stderr, err)
 		}
 	})
 
@@ -123,7 +136,11 @@ func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the CLI version, commit SHA, and build timestamp as JSON",
-		Long:  "Print build metadata as JSON. Fields: version, commit, built_at.",
+		Long: `Print build metadata as JSON.
+
+VALIDATION / INPUTS
+  No positional arguments or command-specific flags.
+  Output fields: version, commit, built_at.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runVersionJSON(cmd.OutOrStdout())
 		},

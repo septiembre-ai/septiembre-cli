@@ -25,6 +25,10 @@ func newTeamsListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List all teams in the resolved organization",
+		Long: `List all teams in the resolved organization.
+
+VALIDATION / INPUTS
+  --org: required organization slug unless a default org is configured.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, r, err := newAuthenticatedClient(cmd)
 			if err != nil {

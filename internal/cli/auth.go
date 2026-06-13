@@ -55,7 +55,12 @@ Examples:
   printf '%s' "$SEPTIEMBRE_TOKEN" | septiembre auth login --token-stdin
 
 Tokens are created at: POST https://api.septiembre.ai/api/v1/auth/tokens.
-Browser-based device-flow login is not available in cloud-api yet.`,
+Browser-based device-flow login is not available in cloud-api yet.
+
+VALIDATION / INPUTS
+  Token source: exactly one of --token-stdin, hidden --token, or SEPTIEMBRE_TOKEN.
+  PAT format: backend-issued personal access token, usually sapi_<hex>.
+  Verification: token must pass /api/v1/auth/me before it is saved.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r := output.NewRenderer(OutputFormat(cmd), cmd.OutOrStdout(), cmd.ErrOrStderr())
 
@@ -89,7 +94,7 @@ Browser-based device-flow login is not available in cloud-api yet.`,
 	}
 	cmd.Flags().String("token", "", "Personal access token to verify and save (prefer --token-stdin; command arguments can be visible in shell history)")
 	_ = cmd.Flags().MarkHidden("token")
-	cmd.Flags().Bool("token-stdin", false, "Read the personal access token from stdin")
+	cmd.Flags().Bool("token-stdin", false, "Read one personal access token from stdin; safer than passing secrets as arguments")
 	return cmd
 }
 
@@ -122,6 +127,10 @@ func newAuthWhoamiCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "whoami",
 		Short: "Show the identity of the currently authenticated user",
+		Long: `Show the identity associated with the current token.
+
+VALIDATION / INPUTS
+  Authentication: requires a valid saved token or SEPTIEMBRE_TOKEN.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, r, err := newAuthenticatedClient(cmd)
 			if err != nil {
@@ -175,10 +184,14 @@ func newAuthTokenCreateCmd() *cobra.Command {
 The raw token (sapi_<hex>) is printed exactly once in the JSON response.
 Store it immediately — it cannot be retrieved again.
 
+VALIDATION / INPUTS
+  --name: human-readable label for the token (example: ci-deploy).
+  --expires-at: optional RFC 3339 timestamp (example: 2026-12-31T00:00:00Z).
+
 EXIT CODES
   0  token created
   2  not authenticated
-  4  validation error (e.g. future expires_at required)`,
+  4  validation error (e.g. invalid expires_at format)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name, _ := cmd.Flags().GetString("name")
 			expiresStr, _ := cmd.Flags().GetString("expires-at")
@@ -223,8 +236,8 @@ EXIT CODES
 			return nil
 		},
 	}
-	cmd.Flags().String("name", "cli-token", "Human-readable token name (e.g. ci-deploy)")
-	cmd.Flags().String("expires-at", "", "Token expiry in RFC 3339 format (e.g. 2026-12-31T00:00:00Z). Omit for no expiry.")
+	cmd.Flags().String("name", "cli-token", "Human-readable token label (e.g. ci-deploy)")
+	cmd.Flags().String("expires-at", "", "Token expiry in RFC 3339 format (e.g. 2026-12-31T00:00:00Z); omit for no expiry")
 	return cmd
 }
 
@@ -233,6 +246,10 @@ func newAuthTokenListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List personal access tokens owned by the current user",
+		Long: `List personal access tokens owned by the current user.
+
+VALIDATION / INPUTS
+  Authentication: requires a valid saved token or SEPTIEMBRE_TOKEN.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, r, err := newAuthenticatedClient(cmd)
 			if err != nil {
@@ -255,7 +272,12 @@ func newAuthTokenRevokeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "revoke <token-id>",
 		Short: "Revoke a personal access token",
-		Args:  cobra.ExactArgs(1),
+		Long: `Revoke a personal access token.
+
+VALIDATION / INPUTS
+  <token-id>: token ID returned by auth token list/create.
+  Authentication: requires a valid saved token or SEPTIEMBRE_TOKEN.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, r, err := newAuthenticatedClient(cmd)
 			if err != nil {
