@@ -35,3 +35,88 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  install-smoke:
+    name: Install smoke (${{ matrix.os }})
+    needs: release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Download and install CLI (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          version="${GITHUB_REF_NAME#v}"
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64) arch="amd64" ;;
+            arm64|aarch64) arch="arm64" ;;
+            *)
+              echo "unsupported macOS architecture: $arch" >&2
+              exit 1
+              ;;
+          esac
+
+          asset="septiembre_${version}_darwin_${arch}.tar.gz"
+          install_dir="$RUNNER_TEMP/septiembre-install"
+          mkdir -p "$install_dir"
+
+          gh release download "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$asset" \
+            --dir "$install_dir"
+
+          tar -xzf "$install_dir/$asset" -C "$install_dir"
+          chmod +x "$install_dir/septiembre"
+          echo "$install_dir" >> "$GITHUB_PATH"
+
+      - name: Verify CLI install (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          septiembre version
+          septiembre --help --json > "$RUNNER_TEMP/septiembre-help.json"
+          python3 -m json.tool "$RUNNER_TEMP/septiembre-help.json" >/dev/null
+
+      - name: Download and install CLI (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
+          $asset = "septiembre_${version}_windows_${arch}.zip"
+          $installDir = Join-Path $env:RUNNER_TEMP "septiembre-install"
+          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+
+          gh release download $env:GITHUB_REF_NAME `
+            --repo $env:GITHUB_REPOSITORY `
+            --pattern $asset `
+            --dir $installDir
+
+          Expand-Archive -Path (Join-Path $installDir $asset) -DestinationPath $installDir -Force
+          Add-Content -Path $env:GITHUB_PATH -Value $installDir
+
+      - name: Verify CLI install (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          septiembre.exe version
+          septiembre.exe --help --json | ConvertFrom-Json | Out-Null
