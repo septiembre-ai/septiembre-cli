@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	testOrgSlug = "acme"
-	testOrgID   = "org-1"
-	testAppID   = "app-1"
+	testOrgSlug  = "acme"
+	testOrgID    = "org-1"
+	testAppID    = "app-1"
 	testDeployID = "deploy-1"
 )
 
@@ -105,6 +105,63 @@ func TestDeploysStatus_Success(t *testing.T) {
 	}
 	if status, _ := got["status"].(string); status != "success" {
 		t.Errorf("deploys status: want status success, got %q", status)
+	}
+}
+
+func TestDeploysCancel_Success(t *testing.T) {
+	mux := deploys_mux()
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/deployments/"+testDeployID, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "expected DELETE", http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := newTestServer(t, mux)
+	outBuf, _, exec := newTestRoot(t, srv)
+
+	err := exec("deploys", "cancel", testAppID, testDeployID, "--org", testOrgSlug)
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("deploys cancel: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("deploys cancel: stdout not valid JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+	if id, _ := got["id"].(string); id != testDeployID {
+		t.Errorf("deploys cancel: want id %q, got %q", testDeployID, id)
+	}
+	if status, _ := got["status"].(string); status != "cancelled" {
+		t.Errorf("deploys cancel: want status cancelled, got %q", status)
+	}
+}
+
+func TestDeploysCancel_NotFound(t *testing.T) {
+	mux := deploys_mux()
+	mux.HandleFunc("/api/v1/orgs/"+testOrgID+"/apps/"+testAppID+"/deployments/"+testDeployID, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "expected DELETE", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"deployment not found"}`))
+	})
+	srv := newTestServer(t, mux)
+	_, errBuf, exec := newTestRoot(t, srv)
+
+	err := exec("deploys", "cancel", testAppID, testDeployID, "--org", testOrgSlug)
+
+	if got := exitCode(err); got != output.ExitNotFound {
+		t.Errorf("deploys cancel not found: want exit %d, got %d; stderr: %s", output.ExitNotFound, got, errBuf)
+	}
+	var env map[string]any
+	if jsonErr := json.NewDecoder(errBuf).Decode(&env); jsonErr != nil {
+		t.Fatalf("deploys cancel not found: stderr not JSON: %v\nstderr: %s", jsonErr, errBuf)
+	}
+	if code, _ := env["code"].(string); code != "not_found" {
+		t.Errorf("deploys cancel not found: want code not_found, got %q", code)
 	}
 }
 

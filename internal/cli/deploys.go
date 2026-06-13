@@ -26,6 +26,7 @@ AGENT USAGE
   Trigger and poll:
     septiembre deploys trigger <app-id> --org <slug> --tag v1.2.3
     septiembre deploys status <app-id> <deploy-id> --org <slug>
+    septiembre deploys cancel <app-id> <deploy-id> --org <slug>
 
   List recent deployments:
     septiembre deploys list <app-id> --org <slug> | jq '.[0].status'`,
@@ -33,6 +34,7 @@ AGENT USAGE
 	deploys.AddCommand(newDeploysTriggerCmd())
 	deploys.AddCommand(newDeploysListCmd())
 	deploys.AddCommand(newDeploysStatusCmd())
+	deploys.AddCommand(newDeploysCancelCmd())
 	return deploys
 }
 
@@ -167,6 +169,37 @@ func newDeploysStatusCmd() *cobra.Command {
 				return handleAPIError(r, err)
 			}
 			if err := r.Render(deploy); err != nil {
+				return &ExitError{Code: output.ExitGeneral}
+			}
+			return nil
+		},
+	}
+}
+
+// newDeploysCancelCmd returns `deploys cancel <app-id> <deploy-id>`.
+func newDeploysCancelCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "cancel <app-id> <deploy-id>",
+		Short: "Cancel an in-flight deployment",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, r, err := newAuthenticatedClient(cmd)
+			if err != nil {
+				return err
+			}
+
+			orgID, err := requireOrgID(cmd.Context(), cmd, c, r)
+			if err != nil {
+				return err
+			}
+
+			if err := c.CancelDeployment(cmd.Context(), orgID, args[0], args[1]); err != nil {
+				return handleAPIError(r, err)
+			}
+			if err := r.Render(map[string]string{
+				"id":     args[1],
+				"status": "cancelled",
+			}); err != nil {
 				return &ExitError{Code: output.ExitGeneral}
 			}
 			return nil
