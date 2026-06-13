@@ -53,18 +53,28 @@ Pre-built binaries for Linux, macOS, and Windows are available on the
 
 **macOS / Linux:**
 ```bash
-# Replace VERSION and PLATFORM (darwin_arm64 | darwin_amd64 | linux_amd64 | linux_arm64)
-curl -L https://github.com/septiembre-ai/septiembre-cli/releases/latest/download/septiembre_VERSION_darwin_arm64.tar.gz \
-  | tar -xz && mv septiembre /usr/local/bin/
+# Set PLATFORM to one of: darwin_arm64, darwin_amd64, linux_amd64, linux_arm64
+PLATFORM=darwin_arm64
+VERSION=$(curl -fsSL https://api.github.com/repos/septiembre-ai/septiembre-cli/releases/latest \
+  | sed -n 's/.*"tag_name": "v\{0,1\}\([^"]*\)".*/\1/p')
+
+curl -L "https://github.com/septiembre-ai/septiembre-cli/releases/latest/download/septiembre_${VERSION}_${PLATFORM}.tar.gz" \
+  | tar -xz
+sudo mv septiembre /usr/local/bin/
 ```
 
 **Windows (PowerShell):**
 ```powershell
-# Replace VERSION in the URL below
-$url = "https://github.com/septiembre-ai/septiembre-cli/releases/latest/download/septiembre_VERSION_windows_amd64.zip"
-Invoke-WebRequest $url -OutFile septiembre.zip
-Expand-Archive septiembre.zip -DestinationPath .
-Move-Item septiembre.exe "$env:USERPROFILE\bin\septiembre.exe"
+$Repo = "septiembre-ai/septiembre-cli"
+$Release = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest"
+$Version = $Release.tag_name.TrimStart("v")
+$Arch = "amd64" # Use "arm64" for Windows on ARM.
+$Archive = "septiembre_${Version}_windows_${Arch}.zip"
+$InstallDir = "$env:USERPROFILE\bin"
+
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+Invoke-WebRequest "https://github.com/$Repo/releases/latest/download/$Archive" -OutFile $Archive
+Expand-Archive $Archive -DestinationPath $InstallDir -Force
 ```
 
 Checksums are published alongside each release in `checksums.txt`.
@@ -103,7 +113,15 @@ Tokens are created at `POST https://api.septiembre.ai/api/v1/auth/tokens`.
 
 ### Config file (dev/local)
 
-Tokens can also be stored in the config file at:
+For local development, verify and save a PAT without putting it in shell
+history:
+
+```bash
+printf '%s' "$SEPTIEMBRE_TOKEN" | septiembre auth login --token-stdin
+septiembre auth whoami
+```
+
+Tokens can also be stored manually in the config file at:
 - **Linux/macOS**: `~/.config/septiembre/config.yaml`
 - **Windows**: `%APPDATA%\septiembre\config.yaml`
 
@@ -137,13 +155,16 @@ septiembre --help --json                   # machine-readable command tree for a
 
 ```bash
 septiembre auth whoami                     # show current user identity
-septiembre auth login                      # browser login (coming soon — use SEPTIEMBRE_TOKEN)
+printf '%s' "$SEPTIEMBRE_TOKEN" | septiembre auth login --token-stdin
 
 septiembre auth token create               # create a PAT (raw token shown once in JSON)
 septiembre auth token create --name ci-deploy --expires-at 2026-12-31T00:00:00Z
 septiembre auth token list                 # list your PATs (raw value never shown)
 septiembre auth token revoke <token-id>    # revoke a PAT
 ```
+
+`auth login` verifies the PAT with `/api/v1/auth/me` before saving it. Browser
+or device-flow login is not available until cloud-api exposes that auth flow.
 
 ### Organizations
 
@@ -188,8 +209,13 @@ Override the domain suffix with `SEPTIEMBRE_DOMAIN_SUFFIX` or the `domain_suffix
 septiembre env get <app-id> --org <slug>          # list env vars (values masked as ***)
 septiembre env get <app-id> --org <slug> --reveal # show plaintext values
 septiembre env set <app-id> --org <slug> KEY=value OTHER=value2
+printf 'API_KEY=secret\n' | septiembre env set <app-id> --org <slug> --from-stdin
+septiembre env set <app-id> --org <slug> --from-file .env
 # env set is a full replacement (PUT) — omitted keys are deleted
 ```
+
+Prefer `--from-stdin` or `--from-file` for secret values. Passing `KEY=value`
+directly can expose secrets in shell history or process listings.
 
 ### Deployments
 

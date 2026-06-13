@@ -247,9 +247,13 @@ func (c *Client) doOnce(ctx context.Context, method, path string, body any) (*ht
 
 // decodeJSON reads and closes the response body, decoding it into v.
 func decodeJSON(resp *http.Response, v any) error {
-	defer resp.Body.Close()
-	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
-		return fmt.Errorf("decode response: %w", err)
+	decodeErr := json.NewDecoder(resp.Body).Decode(v)
+	closeErr := resp.Body.Close()
+	if decodeErr != nil {
+		return fmt.Errorf("decode response: %w", decodeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close response body: %w", closeErr)
 	}
 	return nil
 }

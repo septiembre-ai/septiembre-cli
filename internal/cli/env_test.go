@@ -1,10 +1,16 @@
 package cli_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/septiembre-ai/septiembre-cli/internal/cli"
 	"github.com/septiembre-ai/septiembre-cli/internal/output"
 )
 
@@ -23,7 +29,7 @@ func TestEnvGet_Masked(t *testing.T) {
 	mux.HandleFunc("/api/v1/orgs", orgsHandler("acme", "org-1"))
 	mux.HandleFunc("/api/v1/orgs/org-1/apps/app-1/env", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"API_KEY":"supersecret","DB_URL":"postgres://..."}`)	)
+		_, _ = w.Write([]byte(`{"API_KEY":"supersecret","DB_URL":"postgres://..."}`))
 	})
 	srv := newTestServer(t, mux)
 	outBuf, _, exec := newTestRoot(t, srv)
@@ -100,6 +106,78 @@ func TestEnvSet_Success(t *testing.T) {
 	var got map[string]any
 	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
 		t.Fatalf("env set: stdout not valid JSON: %v\noutput: %s", jsonErr, outBuf)
+	}
+}
+
+func TestEnvSet_FromStdin(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/orgs", orgsHandler("acme", "org-1"))
+	mux.HandleFunc("/api/v1/orgs/org-1/apps/app-1/env", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "expected PUT", http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if !strings.Contains(string(body), `"API_KEY":"supersecret"`) {
+			t.Fatalf("request body missing API_KEY: %s", body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := newTestServer(t, mux)
+	t.Setenv("SEPTIEMBRE_TOKEN", "sapi_test_deadbeef1234567890123456789012")
+	t.Setenv("SEPTIEMBRE_API_URL", srv)
+
+	outBuf := new(bytes.Buffer)
+	errBuf := new(bytes.Buffer)
+	root := cli.NewRootCmd()
+	root.SetIn(strings.NewReader("API_KEY=supersecret\n# ignored\nOTHER=value2\n"))
+	root.SetOut(outBuf)
+	root.SetErr(errBuf)
+	root.SetArgs([]string{"env", "set", "app-1", "--org", "acme", "--from-stdin"})
+
+	err := root.Execute()
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("env set --from-stdin: want exit 0, got %d; stderr: %s", got, errBuf)
+	}
+}
+
+func TestEnvSet_FromFile(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/orgs", orgsHandler("acme", "org-1"))
+	mux.HandleFunc("/api/v1/orgs/org-1/apps/app-1/env", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			http.Error(w, "expected PUT", http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if !strings.Contains(string(body), `"DB_URL":"postgres://example"`) {
+			t.Fatalf("request body missing DB_URL: %s", body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := newTestServer(t, mux)
+	outBuf, _, exec := newTestRoot(t, srv)
+	envPath := filepath.Join(t.TempDir(), "env.txt")
+	t.Setenv("SEPTIEMBRE_TOKEN", "sapi_test_deadbeef1234567890123456789012")
+	if writeErr := os.WriteFile(envPath, []byte("DB_URL=postgres://example\n"), 0600); writeErr != nil {
+		t.Fatalf("write env file: %v", writeErr)
+	}
+
+	err := exec("env", "set", "app-1", "--org", "acme", "--from-file", envPath)
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("env set --from-file: want exit 0, got %d", got)
+	}
+	var got map[string]any
+	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
+		t.Fatalf("env set --from-file: stdout not valid JSON: %v\noutput: %s", jsonErr, outBuf)
 	}
 }
 

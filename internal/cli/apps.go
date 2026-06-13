@@ -44,6 +44,12 @@ func newAppsListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List applications (all orgs by default, or scoped with --org)",
+		Long: `List applications visible to the authenticated user.
+
+VALIDATION / INPUTS
+  --org: optional organization slug. When omitted, the command uses the
+         configured default org; if no default exists, it lists apps across
+         all organizations visible to the token.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, r, err := newAuthenticatedClient(cmd)
 			if err != nil {
@@ -102,7 +108,12 @@ func newAppsGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <app-id>",
 		Short: "Get details for a specific application (requires --org)",
-		Args:  cobra.ExactArgs(1),
+		Long: `Get details for a specific application.
+
+VALIDATION / INPUTS
+  <app-id>: application ID returned by apps list/create.
+  --org: required organization slug unless a default org is configured.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, r, err := newAuthenticatedClient(cmd)
 			if err != nil {
@@ -136,7 +147,15 @@ func newAppsCreateCmd() *cobra.Command {
 		Long: `Create a new Septiembre application. Team is auto-selected when the org has
 exactly one team; use --team <slug-or-id> when multiple teams exist.
 
---runtime is required for non-web app types (api, web-ssr, sse).
+VALIDATION / INPUTS
+  --name: slug, 1-50 chars, lowercase letters, digits, and hyphens; must start
+          and end with a letter or digit (example: my-app).
+  --type: one of web|web-ssr|api|sse.
+  --region: one of us-east-1|us-east-2|sa-east-1.
+  --runtime: required when --type is not web; one of nodejs24|python314|go126.
+  --team: team slug or ID; required when the org has multiple teams.
+  --wait-interval/--wait-timeout: Go duration strings (examples: 1s, 30s, 5m).
+
 --wait blocks until the domain becomes active (useful for CI pipelines).`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			name, _ := cmd.Flags().GetString("name")
@@ -235,14 +254,14 @@ exactly one team; use --team <slug-or-id> when multiple teams exist.
 		},
 	}
 
-	cmd.Flags().String("name", "", "Application name / slug (required)")
-	cmd.Flags().String("type", "", "Application type: web|web-ssr|api|sse (required)")
-	cmd.Flags().String("region", "", "AWS region: us-east-1|us-east-2|sa-east-1 (required)")
-	cmd.Flags().String("runtime", "", "Runtime (required when --type is not 'web'): nodejs24|python314|go126")
-	cmd.Flags().String("team", "", "Team slug or ID (auto-selects when org has exactly one team)")
+	cmd.Flags().String("name", "", "Application slug: 1-50 lowercase letters, digits, hyphens; starts/ends alphanumeric (required)")
+	cmd.Flags().String("type", "", "Application type: one of web|web-ssr|api|sse (required)")
+	cmd.Flags().String("region", "", "AWS region: one of us-east-1|us-east-2|sa-east-1 (required)")
+	cmd.Flags().String("runtime", "", "Runtime: one of nodejs24|python314|go126; required when --type is not web")
+	cmd.Flags().String("team", "", "Team slug or ID; required when org has multiple teams, auto-selected when exactly one team exists")
 	cmd.Flags().Bool("wait", false, "Wait for domain to become active before returning")
-	cmd.Flags().Duration("wait-interval", 5*time.Second, "Polling interval when --wait is active")
-	cmd.Flags().Duration("wait-timeout", 10*time.Minute, "Maximum time to wait for domain activation")
+	cmd.Flags().Duration("wait-interval", 5*time.Second, "Polling interval as a Go duration when --wait is active (e.g. 5s)")
+	cmd.Flags().Duration("wait-timeout", 10*time.Minute, "Maximum wait as a Go duration for domain activation (e.g. 10m)")
 	return cmd
 }
 
@@ -258,7 +277,10 @@ Teardown is asynchronous and may take several minutes. The command returns
 immediately after the API accepts the request; it does NOT wait for teardown
 to finish. Use 'apps get' to poll teardown status.
 
---yes is required to prevent accidental deletion in scripts.`,
+VALIDATION / INPUTS
+  <app-id>: application ID returned by apps list/create.
+  --org: required organization slug unless a default org is configured.
+  --yes: required confirmation flag to prevent accidental deletion in scripts.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			yes, _ := cmd.Flags().GetBool("yes")
@@ -300,7 +322,7 @@ to finish. Use 'apps get' to poll teardown status.
 			return nil
 		},
 	}
-	cmd.Flags().Bool("yes", false, "Confirm deletion (required)")
+	cmd.Flags().Bool("yes", false, "Confirm deletion; required to execute async teardown")
 	return cmd
 }
 

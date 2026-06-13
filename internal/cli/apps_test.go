@@ -1,11 +1,12 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/septiembre-ai/septiembre-cli/internal/output"
-	"encoding/json"
 )
 
 // orgsAndAppsHandler returns an http.ServeMux that simulates an org + apps pair.
@@ -620,5 +621,39 @@ func TestAppsList_URL_ComposedField(t *testing.T) {
 	wantURL := "https://my-app.septiembre.co"
 	if u, _ := got[0]["url"].(string); u != wantURL {
 		t.Errorf("apps list url: want url %q, got %q", wantURL, u)
+	}
+}
+
+func TestAppsCreateHelpShowsValidation(t *testing.T) {
+	outBuf, _, exec := newTestRoot(t, "")
+
+	err := exec("apps", "create", "--help")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("apps create --help: want exit 0, got %d", got)
+	}
+	help := outBuf.String()
+	for _, want := range []string{
+		"VALIDATION / INPUTS",
+		"--name: slug, 1-50 chars",
+		"lowercase letters, digits, and hyphens",
+		"--runtime: required when --type is not web",
+	} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("apps create help missing %q; output:\n%s", want, help)
+		}
+	}
+}
+
+func TestHelpJSON_AppsCreateNameFlagShowsSlugValidation(t *testing.T) {
+	outBuf, _, exec := newTestRoot(t, "")
+
+	err := exec("--help", "--json")
+
+	if got := exitCode(err); got != output.ExitOK {
+		t.Errorf("--help --json: want exit 0, got %d", got)
+	}
+	if !strings.Contains(outBuf.String(), "Application slug: 1-50 lowercase letters, digits, hyphens; starts/ends alphanumeric") {
+		t.Fatalf("help json should expose apps create --name slug validation; output:\n%s", outBuf)
 	}
 }

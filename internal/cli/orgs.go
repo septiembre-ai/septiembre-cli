@@ -10,6 +10,10 @@ func NewOrgsCmd() *cobra.Command {
 	orgs := &cobra.Command{
 		Use:   "orgs",
 		Short: "Manage organizations",
+		Long: `Commands for listing Septiembre organizations.
+
+VALIDATION / INPUTS
+  Authentication: requires a valid saved token or SEPTIEMBRE_TOKEN.`,
 	}
 	orgs.AddCommand(newOrgsListCmd())
 	return orgs
@@ -20,6 +24,10 @@ func newOrgsListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List organizations you belong to",
+		Long: `List organizations the current token can access.
+
+VALIDATION / INPUTS
+  Authentication: requires a valid saved token or SEPTIEMBRE_TOKEN.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, r, err := newAuthenticatedClient(cmd)
 			if err != nil {

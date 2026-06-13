@@ -53,3 +53,8 @@ func (c *Client) GetDeployment(ctx context.Context, orgID, appID, deployID strin
 	}
 	return &resp, nil
 }
+
+// CancelDeployment marks the deployment identified by deployID as cancelled.
+func (c *Client) CancelDeployment(ctx context.Context, orgID, appID, deployID string) error {
+	return c.delete(ctx, "/api/v1/orgs/"+orgID+"/apps/"+appID+"/deployments/"+deployID)
+}

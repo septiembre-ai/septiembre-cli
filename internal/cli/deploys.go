@@ -26,6 +26,7 @@ AGENT USAGE
   Trigger and poll:
     septiembre deploys trigger <app-id> --org <slug> --tag v1.2.3
     septiembre deploys status <app-id> <deploy-id> --org <slug>
+    septiembre deploys cancel <app-id> <deploy-id> --org <slug>
 
   List recent deployments:
     septiembre deploys list <app-id> --org <slug> | jq '.[0].status'`,
@@ -33,6 +34,7 @@ AGENT USAGE
 	deploys.AddCommand(newDeploysTriggerCmd())
 	deploys.AddCommand(newDeploysListCmd())
 	deploys.AddCommand(newDeploysStatusCmd())
+	deploys.AddCommand(newDeploysCancelCmd())
 	return deploys
 }
 
@@ -41,7 +43,16 @@ func newDeploysTriggerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "trigger <app-id>",
 		Short: "Trigger a new deployment for an application",
-		Args:  cobra.ExactArgs(1),
+		Long: `Trigger a new deployment for an application.
+
+VALIDATION / INPUTS
+  <app-id>: application ID returned by apps list/create.
+  --org: required organization slug unless a default org is configured.
+  --tag: release tag to deploy (example: v1.2.3); required by the API for API
+         and SSE app types.
+  --env-id: environment UUID; defaults to the production environment when empty.
+  --wait-interval/--wait-timeout: Go duration strings (examples: 1s, 30s, 15m).`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			tag, _ := cmd.Flags().GetString("tag")
 			envID, _ := cmd.Flags().GetString("env-id")
@@ -108,11 +119,11 @@ func newDeploysTriggerCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("tag", "", "Release tag to deploy (e.g. v1.2.3). Required for API and SSE app types.")
-	cmd.Flags().String("env-id", "", "Environment UUID (defaults to the production environment when empty)")
+	cmd.Flags().String("tag", "", "Release tag to deploy (e.g. v1.2.3); required for API and SSE app types")
+	cmd.Flags().String("env-id", "", "Environment UUID; defaults to the production environment when empty")
 	cmd.Flags().Bool("wait", false, "Wait for deployment to reach a terminal state before returning")
-	cmd.Flags().Duration("wait-interval", 5*time.Second, "Polling interval when --wait is active")
-	cmd.Flags().Duration("wait-timeout", 15*time.Minute, "Maximum time to wait for deployment completion")
+	cmd.Flags().Duration("wait-interval", 5*time.Second, "Polling interval as a Go duration when --wait is active (e.g. 5s)")
+	cmd.Flags().Duration("wait-timeout", 15*time.Minute, "Maximum wait as a Go duration for deployment completion (e.g. 15m)")
 	return cmd
 }
 
@@ -121,7 +132,12 @@ func newDeploysListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list <app-id>",
 		Short: "List recent deployments for an application",
-		Args:  cobra.ExactArgs(1),
+		Long: `List recent deployments for an application.
+
+VALIDATION / INPUTS
+  <app-id>: application ID returned by apps list/create.
+  --org: required organization slug unless a default org is configured.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, r, err := newAuthenticatedClient(cmd)
 			if err != nil {
@@ -150,7 +166,13 @@ func newDeploysStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status <app-id> <deploy-id>",
 		Short: "Get the status of a specific deployment",
-		Args:  cobra.ExactArgs(2),
+		Long: `Get the status of a specific deployment.
+
+VALIDATION / INPUTS
+  <app-id>: application ID returned by apps list/create.
+  <deploy-id>: deployment ID returned by deploys trigger/list.
+  --org: required organization slug unless a default org is configured.`,
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, r, err := newAuthenticatedClient(cmd)
 			if err != nil {
@@ -167,6 +189,43 @@ func newDeploysStatusCmd() *cobra.Command {
 				return handleAPIError(r, err)
 			}
 			if err := r.Render(deploy); err != nil {
+				return &ExitError{Code: output.ExitGeneral}
+			}
+			return nil
+		},
+	}
+}
+
+// newDeploysCancelCmd returns `deploys cancel <app-id> <deploy-id>`.
+func newDeploysCancelCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "cancel <app-id> <deploy-id>",
+		Short: "Cancel an in-flight deployment",
+		Long: `Cancel an in-flight deployment.
+
+VALIDATION / INPUTS
+  <app-id>: application ID returned by apps list/create.
+  <deploy-id>: deployment ID returned by deploys trigger/list.
+  --org: required organization slug unless a default org is configured.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, r, err := newAuthenticatedClient(cmd)
+			if err != nil {
+				return err
+			}
+
+			orgID, err := requireOrgID(cmd.Context(), cmd, c, r)
+			if err != nil {
+				return err
+			}
+
+			if err := c.CancelDeployment(cmd.Context(), orgID, args[0], args[1]); err != nil {
+				return handleAPIError(r, err)
+			}
+			if err := r.Render(map[string]string{
+				"id":     args[1],
+				"status": "cancelled",
+			}); err != nil {
 				return &ExitError{Code: output.ExitGeneral}
 			}
 			return nil

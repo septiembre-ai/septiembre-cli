@@ -38,36 +38,51 @@ func writeTable(w io.Writer, v any) error {
 	sort.Strings(headers)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	defer tw.Flush()
 
 	// Print header row.
 	for i, h := range headers {
 		if i > 0 {
-			fmt.Fprint(tw, "\t")
+			if _, err := fmt.Fprint(tw, "\t"); err != nil {
+				return err
+			}
 		}
-		fmt.Fprint(tw, h)
+		if _, err := fmt.Fprint(tw, h); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintln(tw)
+	if _, err := fmt.Fprintln(tw); err != nil {
+		return err
+	}
 
 	// Print data rows.
 	for _, row := range rows {
 		for i, h := range headers {
 			if i > 0 {
-				fmt.Fprint(tw, "\t")
+				if _, err := fmt.Fprint(tw, "\t"); err != nil {
+					return err
+				}
 			}
 			val := row[h]
 			switch v := val.(type) {
 			case string:
-				fmt.Fprint(tw, v)
+				if _, err := fmt.Fprint(tw, v); err != nil {
+					return err
+				}
 			case nil:
-				fmt.Fprint(tw, "")
+				if _, err := fmt.Fprint(tw, ""); err != nil {
+					return err
+				}
 			default:
 				// Inline JSON for nested structures.
 				b, _ := json.Marshal(v)
-				fmt.Fprint(tw, string(b))
+				if _, err := fmt.Fprint(tw, string(b)); err != nil {
+					return err
+				}
 			}
 		}
-		fmt.Fprintln(tw)
+		if _, err := fmt.Fprintln(tw); err != nil {
+			return err
+		}
 	}
-	return nil
+	return tw.Flush()
 }

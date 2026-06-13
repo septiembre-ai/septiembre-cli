@@ -41,7 +41,9 @@ type apiErrorBody struct {
 // A 401 response always overrides the server message with actionable guidance that
 // directs the user to SEPTIEMBRE_TOKEN, regardless of what the server said.
 func parseErrorResponse(resp *http.Response) *APIError {
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	data, _ := io.ReadAll(resp.Body)
 	var envelope apiErrorBody
