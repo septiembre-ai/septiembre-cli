@@ -92,6 +92,18 @@ Expand-Archive $Archive -DestinationPath $InstallDir -Force
 
 Checksums are published alongside each release in `checksums.txt`.
 
+Once installed as a standalone binary, you can update in place with:
+
+```bash
+septiembre upgrade          # download and install the latest release
+septiembre upgrade --check  # report current vs latest without changing anything
+```
+
+`upgrade` downloads the release asset for your OS/arch, verifies its SHA-256
+checksum against `checksums.txt`, and replaces the running binary atomically.
+If the CLI was installed via Homebrew it will not self-replace — it points you
+at `brew upgrade --cask septiembre` so Homebrew keeps managing the version.
+
 ### Install with Go
 
 ```bash
@@ -162,7 +174,12 @@ The file must be `0600` (owner read/write only). CI **must** use `SEPTIEMBRE_TOK
 ```bash
 septiembre --version                       # JSON: {"version":"...","commit":"...","built_at":"..."}
 septiembre --help --json                   # machine-readable command tree for agents
+septiembre upgrade                         # update a standalone binary to the latest release
+septiembre upgrade --check                 # report current vs latest without changing anything
 ```
+
+`upgrade` is a no-op for Homebrew installs: it returns
+`{"status":"managed_by_homebrew"}` and tells you to run `brew upgrade --cask septiembre`.
 
 ### Auth
 
