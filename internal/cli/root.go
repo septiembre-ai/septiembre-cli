@@ -47,7 +47,7 @@ EXIT CODES
 
 AUTHENTICATION
   Set SEPTIEMBRE_TOKEN to a personal access token (sapi_...) for CI and agents.
-  Create tokens: septiembre auth token create --description "ci"
+  Create tokens: septiembre auth token create --name "ci"
   Tokens are created at: POST https://api.septiembre.ai/api/v1/auth/tokens`,
 
 		// SilenceUsage prevents Cobra from printing usage on every error.

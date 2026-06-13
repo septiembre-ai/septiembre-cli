@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/septiembre-ai/septiembre-cli/internal/cli"
@@ -126,6 +127,16 @@ func TestHelpJSON_Parseable(t *testing.T) {
 	}
 	if _, ok := got["commands"]; !ok {
 		t.Errorf("--help --json missing 'commands' key; got %v", got)
+	}
+}
+
+func TestRootHelp_AuthTokenExampleUsesNameFlag(t *testing.T) {
+	help := cli.NewRootCmd().Long
+	if strings.Contains(help, "--description") {
+		t.Fatalf("root long help should not reference --description; output:\n%s", help)
+	}
+	if !strings.Contains(help, `septiembre auth token create --name "ci"`) {
+		t.Fatalf("root long help should show auth token create with --name; output:\n%s", help)
 	}
 }
 
