@@ -202,7 +202,7 @@ func httpGet(ctx context.Context, url string, timeout time.Duration) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20)) // 64 MiB safety cap
 	if err != nil {
@@ -293,7 +293,7 @@ func extractFromTarGz(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open gzip: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -323,7 +323,7 @@ func extractFromZip(data []byte) ([]byte, error) {
 			if err != nil {
 				return nil, fmt.Errorf("open zip entry: %w", err)
 			}
-			defer rc.Close()
+			defer func() { _ = rc.Close() }()
 			return io.ReadAll(io.LimitReader(rc, 256<<20))
 		}
 	}

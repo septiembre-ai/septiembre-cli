@@ -38,9 +38,9 @@ func printBanner(w io.Writer) {
 		green, reset = "", ""
 	}
 
-	fmt.Fprintln(w, green+bannerArt+reset)
-	fmt.Fprintln(w, green+bannerTagline+reset)
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, green+bannerArt+reset)
+	_, _ = fmt.Fprintln(w, green+bannerTagline+reset)
+	_, _ = fmt.Fprintln(w)
 }
 
 // isTerminal reports whether f refers to a character device (a TTY) rather than
