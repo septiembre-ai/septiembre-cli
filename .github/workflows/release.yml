@@ -27,6 +27,15 @@ jobs:
       - name: Test (release gate)
         run: go test ./...
 
+      - name: Check Homebrew tap token
+        env:
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          test -n "$HOMEBREW_TAP_GITHUB_TOKEN" || {
+            echo "HOMEBREW_TAP_GITHUB_TOKEN secret is required to publish the Homebrew cask." >&2
+            exit 1
+          }
+
       - name: Release
         uses: goreleaser/goreleaser-action@v6
         with:
@@ -35,6 +44,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
   install-smoke:
     name: Install smoke (${{ matrix.os }})
@@ -120,3 +130,18 @@ jobs:
 
           septiembre.exe version
           septiembre.exe --help --json | ConvertFrom-Json | Out-Null
+
+  homebrew-smoke:
+    name: Homebrew smoke
+    needs: release
+    runs-on: macos-latest
+
+    steps:
+      - name: Install CLI from Homebrew tap
+        run: |
+          set -euo pipefail
+
+          brew install --cask septiembre-ai/tap/septiembre
+          septiembre version
+          septiembre --help --json > "$RUNNER_TEMP/septiembre-help.json"
+          python3 -m json.tool "$RUNNER_TEMP/septiembre-help.json" >/dev/null

@@ -46,6 +46,19 @@ Exit codes:
 
 ## Install
 
+### Install with Homebrew
+
+```bash
+brew install --cask septiembre-ai/tap/septiembre
+```
+
+Upgrade or uninstall with standard Homebrew commands:
+
+```bash
+brew upgrade --cask septiembre
+brew uninstall --cask septiembre
+```
+
 ### Download a release binary (recommended)
 
 Pre-built binaries for Linux, macOS, and Windows are available on the
@@ -87,10 +100,10 @@ go install github.com/septiembre-ai/septiembre-cli/cmd/septiembre@latest
 
 Requires Go 1.23 or later. The binary is placed in `$GOBIN` (default `~/go/bin`).
 
-### Package managers (coming when the repo goes public)
+### Package managers
 
-Homebrew tap and Scoop bucket distribution will be available once the repository
-is public. Follow the releases page for announcements.
+Scoop bucket distribution is planned but not available yet. Follow the releases
+page for announcements.
 
 ## Authentication
 

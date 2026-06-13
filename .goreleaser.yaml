@@ -52,36 +52,26 @@ changelog:
       - "Merge pull request"
       - "Merge branch"
 
-# ---------------------------------------------------------------------------
-# Homebrew tap and Scoop bucket distribution (PRIVATE REPO — NOT YET ACTIVE)
-#
-# These sections are intentionally commented out. The repository is currently
-# private. Homebrew tap publication requires a public tap repo
-# (septiembre-ai/homebrew-tap) and a HOMEBREW_TAP_GITHUB_TOKEN secret.
-# Scoop bucket publication requires a public bucket repo
+homebrew_casks:
+  - name: septiembre
+    ids:
+      - septiembre
+    binaries:
+      - septiembre
+    repository:
+      owner: septiembre-ai
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: https://cloud.septiembre.ai
+    description: CLI for the Septiembre cloud platform
+    license: MIT
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/septiembre"]
+          end
+
+# Scoop bucket distribution is still pending. It requires a public bucket repo
 # (septiembre-ai/scoop-bucket) and a SCOOP_BUCKET_GITHUB_TOKEN secret.
-#
-# When the repo goes public, uncomment and configure both sections:
-#
-# brews:
-#   - name: septiembre
-#     repository:
-#       owner: septiembre-ai
-#       name: homebrew-tap
-#     directory: Formula
-#     homepage: https://cloud.septiembre.ai
-#     description: CLI for the Septiembre cloud platform
-#     license: MIT
-#     install: bin.install "septiembre"
-#     test: |
-#       system "#{bin}/septiembre", "--version"
-#
-# scoops:
-#   - name: septiembre
-#     repository:
-#       owner: septiembre-ai
-#       name: scoop-bucket
-#     homepage: https://cloud.septiembre.ai
-#     description: CLI for the Septiembre cloud platform
-#     license: MIT
-# ---------------------------------------------------------------------------
