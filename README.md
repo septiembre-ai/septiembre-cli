@@ -247,6 +247,19 @@ septiembre env set <app-id> --org <slug> --from-file .env
 Prefer `--from-stdin` or `--from-file` for secret values. Passing `KEY=value`
 directly can expose secrets in shell history or process listings.
 
+### Services
+
+```bash
+# Managed KVS (DynamoDB-backed data plane) — tables only; creating the first table activates KVS.
+septiembre services kvs tables list <app-id> --org <slug>
+septiembre services kvs tables create <app-id> --org <slug> --name sessions --minute-limit 300
+septiembre services kvs tables rotate <app-id> sessions --org <slug>
+septiembre services kvs tables delete <app-id> sessions --org <slug> --yes
+```
+
+KVS is available for `api`, `web-ssr`, and `sse` apps. Plaintext KVS tokens are
+shown only on enable/create/rotate responses; store them immediately.
+
 ### Deployments
 
 ```bash
