@@ -5,38 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/septiembre-ai/septiembre-cli/internal/client"
 )
-
-func TestEnableKVS_Success(t *testing.T) {
-	t.Parallel()
-
-	c, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("method = %s, want POST", r.Method)
-		}
-		if r.URL.Path != "/api/v1/orgs/org-1/apps/app-1/services/kvs" {
-			t.Errorf("path = %q, want /api/v1/orgs/org-1/apps/app-1/services/kvs", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(client.KVSResponse{
-			Binding: &client.KVSBinding{ID: "binding-1", Status: "active", KVSURL: "https://kvs.septiembre.ai", CreatedAt: time.Now()},
-			KVSURL:  "https://kvs.septiembre.ai",
-			Token:   "skvs_secret",
-		})
-	})
-
-	resp, err := c.EnableKVS(context.Background(), "org-1", "app-1")
-	if err != nil {
-		t.Fatalf("EnableKVS: %v", err)
-	}
-	if resp.Token != "skvs_secret" {
-		t.Errorf("Token = %q, want skvs_secret", resp.Token)
-	}
-}
 
 func TestCreateKVSTable_SendsBody(t *testing.T) {
 	t.Parallel()

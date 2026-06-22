@@ -6,30 +6,6 @@ import (
 	"time"
 )
 
-// KVSBinding is the managed KVS service binding returned by the cloud API.
-type KVSBinding struct {
-	ID            string     `json:"id"`
-	OrgID         string     `json:"org_id,omitempty"`
-	AppID         string     `json:"app_id,omitempty"`
-	EnvID         string     `json:"env_id,omitempty"`
-	Status        string     `json:"status"`
-	KVSURL        string     `json:"kvs_url"`
-	MinuteLimit   int        `json:"minute_limit,omitempty"`
-	DayLimit      int        `json:"day_limit,omitempty"`
-	TokenLastFour *string    `json:"token_last_four,omitempty"`
-	DisabledAt    *time.Time `json:"disabled_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at,omitempty"`
-	UpdatedAt     time.Time  `json:"updated_at,omitempty"`
-}
-
-// KVSResponse is returned by enable and rotate operations. Token is plaintext
-// and is shown once by the API; callers must store it immediately.
-type KVSResponse struct {
-	Binding *KVSBinding `json:"binding"`
-	KVSURL  string      `json:"kvs_url"`
-	Token   string      `json:"token"`
-}
-
 // KVSTable is a named managed KVS table namespace scoped to an app.
 type KVSTable struct {
 	ID            string     `json:"id"`
@@ -65,38 +41,6 @@ func kvsPath(orgID, appID string) string {
 
 func kvsTablesPath(orgID, appID string) string {
 	return kvsPath(orgID, appID) + "/tables"
-}
-
-// EnableKVS enables managed KVS for an app and returns the one-time token.
-func (c *Client) EnableKVS(ctx context.Context, orgID, appID string) (*KVSResponse, error) {
-	var resp KVSResponse
-	if err := c.post(ctx, kvsPath(orgID, appID), nil, &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// GetKVSStatus returns managed KVS binding status without exposing plaintext tokens.
-func (c *Client) GetKVSStatus(ctx context.Context, orgID, appID string) (*KVSBinding, error) {
-	var resp KVSBinding
-	if err := c.get(ctx, kvsPath(orgID, appID), &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// RotateKVS rotates the base KVS token and returns the new one-time token.
-func (c *Client) RotateKVS(ctx context.Context, orgID, appID string) (*KVSResponse, error) {
-	var resp KVSResponse
-	if err := c.post(ctx, kvsPath(orgID, appID)+"/rotate", nil, &resp); err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// DisableKVS disables managed KVS for an app.
-func (c *Client) DisableKVS(ctx context.Context, orgID, appID string) error {
-	return c.delete(ctx, kvsPath(orgID, appID))
 }
 
 // ListKVSTables returns named KVS table namespaces for an app.

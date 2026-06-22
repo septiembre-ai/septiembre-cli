@@ -8,34 +8,6 @@ import (
 	"github.com/septiembre-ai/septiembre-cli/internal/output"
 )
 
-func TestServicesKVSEnable_JSONOutput(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/orgs", orgsHandler("acme", "org-1"))
-	mux.HandleFunc("/api/v1/orgs/org-1/apps/app-1/services/kvs", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("method = %s, want POST", r.Method)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"binding":{"id":"binding-1","status":"active","kvs_url":"https://kvs.septiembre.ai","minute_limit":600,"day_limit":100000,"created_at":"2026-06-09T12:00:00Z","updated_at":"2026-06-09T12:00:00Z"},"kvs_url":"https://kvs.septiembre.ai","token":"skvs_secret"}`))
-	})
-	srv := newTestServer(t, mux)
-	outBuf, _, exec := newTestRoot(t, srv)
-
-	err := exec("services", "kvs", "enable", "app-1", "--org", "acme")
-
-	if got := exitCode(err); got != output.ExitOK {
-		t.Errorf("services kvs enable: want exit 0, got %d", got)
-	}
-	var got map[string]any
-	if jsonErr := json.NewDecoder(outBuf).Decode(&got); jsonErr != nil {
-		t.Fatalf("services kvs enable: stdout not valid JSON: %v\noutput: %s", jsonErr, outBuf)
-	}
-	if token, _ := got["token"].(string); token != "skvs_secret" {
-		t.Errorf("token = %q, want skvs_secret", token)
-	}
-}
-
 func TestServicesKVSTablesCreate_JSONOutput(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/orgs", orgsHandler("acme", "org-1"))

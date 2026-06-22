@@ -16,9 +16,8 @@ func NewServicesCmd() *cobra.Command {
 		Long: `Commands for managing platform services attached to Septiembre apps.
 
 AGENT USAGE
-  septiembre services kvs enable <app-id> --org <slug>
-  septiembre services kvs status <app-id> --org <slug>
-  septiembre services kvs tables create <app-id> --name sessions --org <slug>`,
+  septiembre services kvs tables create <app-id> --name sessions --org <slug>
+  septiembre services kvs tables list <app-id> --org <slug>`,
 	}
 	services.AddCommand(newServicesKVSCmd())
 	return services
@@ -30,159 +29,12 @@ func newServicesKVSCmd() *cobra.Command {
 		Short: "Manage managed KVS for Lambda-backed apps",
 		Long: `Manage the managed KVS service for Lambda-backed applications.
 
-KVS is available for api, web-ssr, and sse apps. Plaintext tokens are returned
-only by enable, rotate, table create, and table rotate operations. Store them
-immediately.`,
+KVS is available for api, web-ssr, and sse apps. Creating the first table
+activates the service. Plaintext tokens are returned only by table create and
+table rotate operations. Store them immediately.`,
 	}
-	kvs.AddCommand(newServicesKVSEnableCmd())
-	kvs.AddCommand(newServicesKVSStatusCmd())
-	kvs.AddCommand(newServicesKVSRotateCmd())
-	kvs.AddCommand(newServicesKVSDisableCmd())
 	kvs.AddCommand(newServicesKVSTablesCmd())
 	return kvs
-}
-
-func newServicesKVSEnableCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "enable <app-id>",
-		Short: "Enable managed KVS for an app",
-		Long: `Enable managed KVS for an application.
-
-VALIDATION / INPUTS
-  <app-id>: application ID returned by apps list/create.
-  --org: required organization slug unless a default org is configured.
-
-The response includes a plaintext token once. Store it immediately.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			c, r, err := newAuthenticatedClient(cmd)
-			if err != nil {
-				return err
-			}
-			orgID, err := requireOrgID(cmd.Context(), cmd, c, r)
-			if err != nil {
-				return err
-			}
-			resp, err := c.EnableKVS(cmd.Context(), orgID, args[0])
-			if err != nil {
-				return handleAPIError(r, err)
-			}
-			if err := r.Render(resp); err != nil {
-				return &ExitError{Code: output.ExitGeneral}
-			}
-			return nil
-		},
-	}
-}
-
-func newServicesKVSStatusCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "status <app-id>",
-		Short: "Get managed KVS status for an app",
-		Long: `Get managed KVS status for an application.
-
-VALIDATION / INPUTS
-  <app-id>: application ID returned by apps list/create.
-  --org: required organization slug unless a default org is configured.
-
-This command never exposes plaintext tokens.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			c, r, err := newAuthenticatedClient(cmd)
-			if err != nil {
-				return err
-			}
-			orgID, err := requireOrgID(cmd.Context(), cmd, c, r)
-			if err != nil {
-				return err
-			}
-			binding, err := c.GetKVSStatus(cmd.Context(), orgID, args[0])
-			if err != nil {
-				return handleAPIError(r, err)
-			}
-			if err := r.Render(binding); err != nil {
-				return &ExitError{Code: output.ExitGeneral}
-			}
-			return nil
-		},
-	}
-}
-
-func newServicesKVSRotateCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "rotate <app-id>",
-		Short: "Rotate the managed KVS token for an app",
-		Long: `Rotate the managed KVS token for an application.
-
-VALIDATION / INPUTS
-  <app-id>: application ID returned by apps list/create.
-  --org: required organization slug unless a default org is configured.
-
-The response includes the new plaintext token once. Store it immediately.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			c, r, err := newAuthenticatedClient(cmd)
-			if err != nil {
-				return err
-			}
-			orgID, err := requireOrgID(cmd.Context(), cmd, c, r)
-			if err != nil {
-				return err
-			}
-			resp, err := c.RotateKVS(cmd.Context(), orgID, args[0])
-			if err != nil {
-				return handleAPIError(r, err)
-			}
-			if err := r.Render(resp); err != nil {
-				return &ExitError{Code: output.ExitGeneral}
-			}
-			return nil
-		},
-	}
-}
-
-func newServicesKVSDisableCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "disable <app-id>",
-		Short: "Disable managed KVS for an app (requires --yes)",
-		Long: `Disable managed KVS for an application.
-
-VALIDATION / INPUTS
-  <app-id>: application ID returned by apps list/create.
-  --org: required organization slug unless a default org is configured.
-  --yes: required confirmation flag to prevent accidental service removal.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			yes, _ := cmd.Flags().GetBool("yes")
-			r := output.NewRenderer(OutputFormat(cmd), cmd.OutOrStdout(), cmd.ErrOrStderr())
-			if !yes {
-				r.RenderError(
-					fmt.Sprintf("pass --yes to confirm disabling KVS for app %q", args[0]),
-					"validation_error",
-					-1,
-				)
-				return &ExitError{Code: output.ExitValidation}
-			}
-
-			c, r, err := newAuthenticatedClient(cmd)
-			if err != nil {
-				return err
-			}
-			orgID, err := requireOrgID(cmd.Context(), cmd, c, r)
-			if err != nil {
-				return err
-			}
-			if err := c.DisableKVS(cmd.Context(), orgID, args[0]); err != nil {
-				return handleAPIError(r, err)
-			}
-			if err := r.Render(map[string]string{"message": "kvs disabled"}); err != nil {
-				return &ExitError{Code: output.ExitGeneral}
-			}
-			return nil
-		},
-	}
-	cmd.Flags().Bool("yes", false, "Confirm disabling managed KVS")
-	return cmd
 }
 
 func newServicesKVSTablesCmd() *cobra.Command {

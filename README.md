@@ -250,13 +250,7 @@ directly can expose secrets in shell history or process listings.
 ### Services
 
 ```bash
-# Managed KVS (DynamoDB-backed data plane)
-septiembre services kvs enable <app-id> --org <slug>   # returns one-time skvs_* token
-septiembre services kvs status <app-id> --org <slug>   # token_last_four only
-septiembre services kvs rotate <app-id> --org <slug>   # returns new one-time token
-septiembre services kvs disable <app-id> --org <slug> --yes
-
-# Named KVS table namespaces
+# Managed KVS (DynamoDB-backed data plane) — tables only; creating the first table activates KVS.
 septiembre services kvs tables list <app-id> --org <slug>
 septiembre services kvs tables create <app-id> --org <slug> --name sessions --minute-limit 300
 septiembre services kvs tables rotate <app-id> sessions --org <slug>
