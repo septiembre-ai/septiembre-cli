@@ -296,7 +296,9 @@ Visualize what changed on the current branch (including uncommitted work) as an
 interactive graph of files and internal import edges. Works in any repository:
 import edges are resolved for Go, JavaScript/TypeScript (including Astro, Vue,
 and Svelte), and Python; other languages still show as files without edges.
-Click a node to see its diff with syntax highlighting and `+/-` counts.
+Click a node to see its diff with syntax highlighting and `+/-` counts. A
+readiness **checklist** flags whether the change set includes source code,
+tests, documentation, and a changelog entry.
 
 ```bash
 septiembre changes                    # open the visual graph (branch vs main)

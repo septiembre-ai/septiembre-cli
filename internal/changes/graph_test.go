@@ -85,6 +85,7 @@ func TestBuildGraph(t *testing.T) {
 			if err != nil {
 				t.Fatalf("BuildGraph: %v", err)
 			}
+			got.Checklist = nil // checklist is covered by TestBuildChecklist
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("BuildGraph() = %#v, want %#v", got, tt.want)
 			}
@@ -372,6 +373,40 @@ func TestBuildGraphResolvesPythonImports(t *testing.T) {
 	}
 	if !reflect.DeepEqual(graph.Edges, want) {
 		t.Fatalf("edges = %#v, want %#v (stdlib 'os' import must be excluded)", graph.Edges, want)
+	}
+}
+
+func TestBuildChecklist(t *testing.T) {
+	flags := func(nodes []string) map[string]bool {
+		out := map[string]bool{}
+		for _, item := range buildChecklist(nodes) {
+			out[item.Key] = item.OK
+		}
+		return out
+	}
+
+	all := flags([]string{
+		"internal/cli/changes.go",
+		"internal/cli/changes_test.go",
+		"docs/guide.md",
+		"CHANGELOG.md",
+	})
+	for _, key := range []string{"code", "tests", "docs", "changelog"} {
+		if !all[key] {
+			t.Fatalf("%s should be satisfied", key)
+		}
+	}
+
+	// A lone changelog must not count as docs or code; a test file is not code.
+	partial := flags([]string{"CHANGELOG.md", "pkg/foo_test.go"})
+	if partial["docs"] {
+		t.Fatal("changelog alone must not satisfy docs")
+	}
+	if partial["code"] {
+		t.Fatal("a test file alone must not satisfy source code")
+	}
+	if !partial["tests"] || !partial["changelog"] {
+		t.Fatalf("tests/changelog should be satisfied: %#v", partial)
 	}
 }
 
