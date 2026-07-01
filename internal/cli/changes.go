@@ -175,6 +175,20 @@ func renderChangesGraph(w io.Writer, graph changes.Graph) error {
 	if _, err := fmt.Fprintf(w, "Changes graph (base: %s)\n", graph.Base); err != nil {
 		return err
 	}
+	if len(graph.Checklist) > 0 {
+		if _, err := fmt.Fprintln(w, "Checklist:"); err != nil {
+			return err
+		}
+		for _, item := range graph.Checklist {
+			mark := " "
+			if item.OK {
+				mark = "x"
+			}
+			if _, err := fmt.Fprintf(w, "  [%s] %s\n", mark, item.Label); err != nil {
+				return err
+			}
+		}
+	}
 	if _, err := fmt.Fprintln(w, "Nodes:"); err != nil {
 		return err
 	}

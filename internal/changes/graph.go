@@ -72,6 +72,14 @@ type Graph struct {
 	Churn     map[string]Churn  `json:"churn,omitempty"`
 	Release   string            `json:"release,omitempty"`
 	Changelog []ChangelogGroup  `json:"changelog,omitempty"`
+	Checklist []ChecklistItem   `json:"checklist,omitempty"`
+}
+
+// ChecklistItem is a yes/no readiness signal computed from the changed files.
+type ChecklistItem struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	OK    bool   `json:"ok"`
 }
 
 // Builder builds a changes graph for a repository.
@@ -204,7 +212,13 @@ func BuildGraph(repoRoot, base string, changes []Change) (Graph, error) {
 		nodes = append(nodes, change.Path)
 		statuses[change.Path] = string(change.Status)
 	}
-	return Graph{Base: base, Nodes: nodes, Edges: buildImportEdges(repoRoot, changes), Statuses: statuses}, nil
+	return Graph{
+		Base:      base,
+		Nodes:     nodes,
+		Edges:     buildImportEdges(repoRoot, changes),
+		Statuses:  statuses,
+		Checklist: buildChecklist(nodes),
+	}, nil
 }
 
 // ReadModulePath returns the module directive from go.mod.
