@@ -296,6 +296,85 @@ func TestWriteHTMLGraphIncludesSafeDeterministicNodesAndEdges(t *testing.T) {
 	}
 }
 
+func TestBuildGraphWithoutGoModSkipsEdges(t *testing.T) {
+	repo := t.TempDir() // non-Go repo: no go.mod
+	writeFile(t, repo, "src/index.js", "console.log('hi')\n")
+
+	graph, err := BuildGraph(repo, "main", []Change{
+		{Path: "src/index.js", Status: StatusModified},
+		{Path: "internal/app.go", Status: StatusNew},
+	})
+	if err != nil {
+		t.Fatalf("BuildGraph without go.mod should not error: %v", err)
+	}
+	if len(graph.Nodes) != 2 {
+		t.Fatalf("nodes = %#v, want both files", graph.Nodes)
+	}
+	if len(graph.Edges) != 0 {
+		t.Fatalf("edges = %#v, want none without go.mod", graph.Edges)
+	}
+	if graph.Statuses["src/index.js"] != "modified" {
+		t.Fatalf("statuses not populated: %#v", graph.Statuses)
+	}
+}
+
+func TestBuildGraphResolvesJSImports(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, "src/app.ts", "import { x } from './util';\nimport React from 'react';\nrequire('../lib/helper');\n")
+	writeFile(t, repo, "src/util.ts", "export const x = 1\n")
+	writeFile(t, repo, "lib/helper.js", "module.exports = {}\n")
+
+	graph, err := BuildGraph(repo, "main", []Change{{Path: "src/app.ts", Status: StatusNew}})
+	if err != nil {
+		t.Fatalf("BuildGraph: %v", err)
+	}
+	want := []Edge{
+		{From: "src/app.ts", To: "lib/helper.js"},
+		{From: "src/app.ts", To: "src/util.ts"},
+	}
+	if !reflect.DeepEqual(graph.Edges, want) {
+		t.Fatalf("edges = %#v, want %#v (bare 'react' import must be excluded)", graph.Edges, want)
+	}
+}
+
+func TestBuildGraphResolvesAstroImports(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, "src/pages/index.astro", "---\nimport Layout from '../layouts/Layout.astro'\nimport { t } from '../lib/i18n'\n---\n<Layout />\n")
+	writeFile(t, repo, "src/layouts/Layout.astro", "<slot />\n")
+	writeFile(t, repo, "src/lib/i18n.ts", "export const t = 1\n")
+
+	graph, err := BuildGraph(repo, "main", []Change{{Path: "src/pages/index.astro", Status: StatusNew}})
+	if err != nil {
+		t.Fatalf("BuildGraph: %v", err)
+	}
+	want := []Edge{
+		{From: "src/pages/index.astro", To: "src/layouts/Layout.astro"},
+		{From: "src/pages/index.astro", To: "src/lib/i18n.ts"},
+	}
+	if !reflect.DeepEqual(graph.Edges, want) {
+		t.Fatalf("edges = %#v, want %#v", graph.Edges, want)
+	}
+}
+
+func TestBuildGraphResolvesPythonImports(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, repo, "pkg/main.py", "from . import util\nfrom pkg.sub import thing\nimport os\n")
+	writeFile(t, repo, "pkg/util.py", "")
+	writeFile(t, repo, "pkg/sub.py", "")
+
+	graph, err := BuildGraph(repo, "main", []Change{{Path: "pkg/main.py", Status: StatusModified}})
+	if err != nil {
+		t.Fatalf("BuildGraph: %v", err)
+	}
+	want := []Edge{
+		{From: "pkg/main.py", To: "pkg/sub.py"},
+		{From: "pkg/main.py", To: "pkg/util.py"},
+	}
+	if !reflect.DeepEqual(graph.Edges, want) {
+		t.Fatalf("edges = %#v, want %#v (stdlib 'os' import must be excluded)", graph.Edges, want)
+	}
+}
+
 func TestParseCommits(t *testing.T) {
 	out := []byte(strings.Join([]string{
 		"abc123\tfeat(cli): add thing",
