@@ -64,9 +64,9 @@ const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 // not themselves changed do not appear in Statuses; consumers render them as
 // context nodes.
 type Graph struct {
-	Base     string            `json:"base"`
-	Nodes    []string          `json:"nodes"`
-	Edges    []Edge            `json:"edges"`
+	Base      string            `json:"base"`
+	Nodes     []string          `json:"nodes"`
+	Edges     []Edge            `json:"edges"`
 	Statuses  map[string]string `json:"statuses,omitempty"`
 	Diffs     map[string]string `json:"diffs,omitempty"`
 	Churn     map[string]Churn  `json:"churn,omitempty"`

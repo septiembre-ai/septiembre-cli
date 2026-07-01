@@ -314,6 +314,35 @@ var changesHTMLTemplate = template.Must(template.New("changes-html").Parse(`<!do
     const q = searchEl.value.trim().toLowerCase();
     indexEl.querySelectorAll('li').forEach(li => { li.hidden = q !== '' && !li.textContent.toLowerCase().includes(q); });
   });
+  if (graph.changelog && graph.changelog.length) {
+    const tabsEl = document.getElementById('tabs');
+    const changelogEl = document.getElementById('changelog');
+    for (const group of graph.changelog) {
+      const head = document.createElement('div');
+      head.className = 'cl-group';
+      head.textContent = group.title + ' (' + group.commits.length + ')';
+      changelogEl.appendChild(head);
+      for (const c of group.commits) {
+        const row = document.createElement('div');
+        row.className = 'cl-commit';
+        row.innerHTML = '<span class="cl-scope"></span><span class="cl-subj"></span><span class="cl-hash"></span>';
+        if (c.scope) row.querySelector('.cl-scope').textContent = c.scope;
+        row.querySelector('.cl-subj').textContent = c.subject;
+        row.querySelector('.cl-hash').textContent = (c.hash || '').slice(0, 7);
+        changelogEl.appendChild(row);
+      }
+    }
+    tabsEl.hidden = false;
+    tabsEl.addEventListener('click', event => {
+      const tab = event.target.getAttribute('data-tab');
+      if (!tab) return;
+      const showChangelog = tab === 'changelog';
+      changelogEl.hidden = !showChangelog;
+      indexEl.hidden = showChangelog;
+      searchEl.hidden = showChangelog;
+      tabsEl.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.getAttribute('data-tab') === tab));
+    });
+  }
   applyTransform();
   let frames = 0;
   function animate(){ if (frames++ < 420 && !drag.node) simulate(); tick(); if (autoFit) fitView(); requestAnimationFrame(animate); }

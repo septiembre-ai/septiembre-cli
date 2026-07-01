@@ -237,6 +237,33 @@ func TestChangesCommandTableOutput(t *testing.T) {
 	}
 }
 
+func TestChangesCommandReleaseFlag(t *testing.T) {
+	builder := &fakeChangesBuilder{graph: changes.Graph{
+		Base:    "v0.4.0",
+		Release: "v0.5.0",
+		Nodes:   []string{"internal/cli/changes.go"},
+	}}
+	opener := &fakeChangesOpener{}
+	cmd := newChangesCmdWithOpener(builder, opener)
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"--release", "v0.5.0"})
+
+	if err := cmd.Execute(); changesExitCode(err) != output.ExitOK {
+		t.Fatalf("exit code non-zero; stderr: %s", errOut.String())
+	}
+	if builder.release != "v0.5.0" {
+		t.Fatalf("BuildRelease called with %q, want v0.5.0", builder.release)
+	}
+	if builder.base != "" {
+		t.Fatalf("Build should not run in release mode; base = %q", builder.base)
+	}
+	if opener.path == "" {
+		t.Fatal("release mode should open the visual graph")
+	}
+}
+
 func TestChangesCommandRejectsArgs(t *testing.T) {
 	builder := &fakeChangesBuilder{graph: changes.Graph{Base: "main"}}
 	cmd := newChangesCmd(builder)

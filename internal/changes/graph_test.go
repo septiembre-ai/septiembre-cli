@@ -296,6 +296,97 @@ func TestWriteHTMLGraphIncludesSafeDeterministicNodesAndEdges(t *testing.T) {
 	}
 }
 
+func TestParseCommits(t *testing.T) {
+	out := []byte(strings.Join([]string{
+		"abc123\tfeat(cli): add thing",
+		"def456\tfix: correct bug",
+		"aaa111\tfeat!: drop old flag",
+		"bbb222\tmerge branch noise without colon",
+	}, "\n"))
+
+	commits := parseCommits(out)
+	if len(commits) != 4 {
+		t.Fatalf("parsed %d commits, want 4", len(commits))
+	}
+	if commits[0] != (Commit{Hash: "abc123", Type: "feat", Scope: "cli", Subject: "add thing"}) {
+		t.Fatalf("commit[0] = %#v", commits[0])
+	}
+	if commits[1] != (Commit{Hash: "def456", Type: "fix", Subject: "correct bug"}) {
+		t.Fatalf("commit[1] = %#v", commits[1])
+	}
+	if !commits[2].Breaking || commits[2].Type != "feat" {
+		t.Fatalf("commit[2] should be breaking feat: %#v", commits[2])
+	}
+	if commits[3].Type != "" || commits[3].Subject != "merge branch noise without colon" {
+		t.Fatalf("non-conventional commit[3] = %#v", commits[3])
+	}
+}
+
+func TestGroupCommits(t *testing.T) {
+	groups := groupCommits([]Commit{
+		{Type: "feat", Subject: "a"},
+		{Type: "fix", Subject: "b"},
+		{Type: "feat", Breaking: true, Subject: "c"},
+		{Type: "chore", Subject: "d"},
+	})
+
+	if len(groups) != 4 {
+		t.Fatalf("got %d groups, want 4: %#v", len(groups), groups)
+	}
+	if groups[0].Title != "💥 Breaking Changes" || len(groups[0].Commits) != 1 {
+		t.Fatalf("group[0] = %#v", groups[0])
+	}
+	if groups[1].Title != "✨ Features" || len(groups[1].Commits) != 1 {
+		t.Fatalf("breaking feat must not double-count in Features: %#v", groups[1])
+	}
+	if !strings.Contains(groups[3].Title, "Other") {
+		t.Fatalf("chore should fall into Other: %#v", groups[3])
+	}
+}
+
+func TestBuildRelease(t *testing.T) {
+	repo := newGraphFixture(t)
+	git := &fakeGit{
+		prevTag: "v0.4.0",
+		files:   []Change{{Path: "internal/cli/changes.go", Status: StatusNew}},
+		diffs:   map[string]string{"internal/cli/changes.go": "diff --git a/x b/x\n+x"},
+		churn:   map[string]Churn{"internal/cli/changes.go": {Added: 10}},
+		commits: []Commit{{Hash: "a", Type: "feat", Subject: "add"}},
+	}
+
+	graph, err := (Builder{RepoRoot: repo, Git: git}).BuildRelease(context.Background(), "v0.5.0")
+	if err != nil {
+		t.Fatalf("BuildRelease: %v", err)
+	}
+	if git.releaseTag != "v0.5.0" {
+		t.Fatalf("PreviousTag called with %q, want v0.5.0", git.releaseTag)
+	}
+	if git.rangeFrom != "v0.4.0" || git.rangeTo != "v0.5.0" {
+		t.Fatalf("range = %q..%q, want v0.4.0..v0.5.0", git.rangeFrom, git.rangeTo)
+	}
+	if graph.Release != "v0.5.0" || graph.Base != "v0.4.0" {
+		t.Fatalf("release=%q base=%q", graph.Release, graph.Base)
+	}
+	if len(graph.Changelog) != 1 || graph.Changelog[0].Title != "✨ Features" {
+		t.Fatalf("changelog = %#v", graph.Changelog)
+	}
+	if graph.Churn["internal/cli/changes.go"].Added != 10 {
+		t.Fatalf("churn not attached: %#v", graph.Churn)
+	}
+}
+
+func TestBuildReleaseFirstReleaseUsesEmptyTree(t *testing.T) {
+	repo := newGraphFixture(t)
+	git := &fakeGit{prevTag: ""} // no previous tag
+
+	if _, err := (Builder{RepoRoot: repo, Git: git}).BuildRelease(context.Background(), "v0.1.0"); err != nil {
+		t.Fatalf("BuildRelease: %v", err)
+	}
+	if git.rangeFrom != emptyTree {
+		t.Fatalf("range from = %q, want empty tree %q", git.rangeFrom, emptyTree)
+	}
+}
+
 func newGraphFixture(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

@@ -290,6 +290,26 @@ septiembre logs <app-id> --org <slug>              # fetch log snapshot (non-str
 septiembre logs <app-id> --org <slug> --env-id <uuid>
 ```
 
+### Changes
+
+Visualize what changed on the current branch (including uncommitted work) as an
+interactive graph of files and internal Go import edges. Click a node to see its
+diff with syntax highlighting and `+/-` counts.
+
+```bash
+septiembre changes                    # open the visual graph (branch vs main)
+septiembre changes --base develop     # compare against another branch/ref
+septiembre changes --release v0.5.0   # graph + changelog for a release, vs the previous tag
+septiembre changes --output json      # full payload for automation
+septiembre changes --output table     # deterministic text
+```
+
+With `--release`, the graph covers the range from the previous tag to the given
+tag and a **Changelog** tab groups the commits by conventional-commit type
+(features, fixes, breaking changes, …). Import edges are resolved from the
+working tree, so they are exact when the tag equals `HEAD` and approximate for
+older tags.
+
 ## Output formats
 
 Commands default to JSON stdout for automation, except `septiembre changes`, which opens a visual graph unless `--output` is explicit. Use `--output table` for human-readable text:
