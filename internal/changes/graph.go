@@ -193,11 +193,10 @@ func groupCommits(commits []Commit) []ChangelogGroup {
 }
 
 // BuildGraph builds a deterministic import graph for the supplied changes.
+// Import edges are resolved per language (Go, JS/TS, Python); files in other
+// languages, or repos without the relevant manifest, simply produce no edges,
+// so the command works in any repository.
 func BuildGraph(repoRoot, base string, changes []Change) (Graph, error) {
-	modulePath, err := ReadModulePath(repoRoot)
-	if err != nil {
-		return Graph{}, err
-	}
 	changes = uniqueSortedChanges(changes)
 	nodes := make([]string, 0, len(changes))
 	statuses := make(map[string]string, len(changes))
@@ -205,11 +204,7 @@ func BuildGraph(repoRoot, base string, changes []Change) (Graph, error) {
 		nodes = append(nodes, change.Path)
 		statuses[change.Path] = string(change.Status)
 	}
-	edges, err := BuildGoImportEdges(repoRoot, modulePath, changes)
-	if err != nil {
-		return Graph{}, err
-	}
-	return Graph{Base: base, Nodes: nodes, Edges: edges, Statuses: statuses}, nil
+	return Graph{Base: base, Nodes: nodes, Edges: buildImportEdges(repoRoot, changes), Statuses: statuses}, nil
 }
 
 // ReadModulePath returns the module directive from go.mod.
@@ -225,50 +220,6 @@ func ReadModulePath(repoRoot string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("go.mod has no module directive")
-}
-
-// BuildGoImportEdges parses changed Go files and resolves module-internal imports to Go files.
-// Deleted files are skipped: they no longer exist on disk and cannot be parsed.
-func BuildGoImportEdges(repoRoot, modulePath string, changes []Change) ([]Edge, error) {
-	seen := make(map[Edge]bool)
-	var edges []Edge
-	for _, change := range uniqueSortedChanges(changes) {
-		if change.Status == StatusDeleted {
-			continue
-		}
-		changed := change.Path
-		if filepath.Ext(changed) != ".go" {
-			continue
-		}
-		imports, err := parseFileImports(filepath.Join(repoRoot, filepath.FromSlash(changed)))
-		if err != nil {
-			return nil, fmt.Errorf("parse imports for %s: %w", changed, err)
-		}
-		for _, importPath := range imports {
-			if !isInternalImport(modulePath, importPath) {
-				continue
-			}
-			files, err := resolveImportFiles(repoRoot, modulePath, importPath)
-			if err != nil {
-				return nil, fmt.Errorf("resolve import %s from %s: %w", importPath, changed, err)
-			}
-			for _, target := range files {
-				edge := Edge{From: changed, To: target}
-				if seen[edge] {
-					continue
-				}
-				seen[edge] = true
-				edges = append(edges, edge)
-			}
-		}
-	}
-	sort.Slice(edges, func(i, j int) bool {
-		if edges[i].From == edges[j].From {
-			return edges[i].To < edges[j].To
-		}
-		return edges[i].From < edges[j].From
-	})
-	return edges, nil
 }
 
 func parseFileImports(path string) ([]string, error) {

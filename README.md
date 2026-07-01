@@ -293,8 +293,10 @@ septiembre logs <app-id> --org <slug> --env-id <uuid>
 ### Changes
 
 Visualize what changed on the current branch (including uncommitted work) as an
-interactive graph of files and internal Go import edges. Click a node to see its
-diff with syntax highlighting and `+/-` counts.
+interactive graph of files and internal import edges. Works in any repository:
+import edges are resolved for Go, JavaScript/TypeScript (including Astro, Vue,
+and Svelte), and Python; other languages still show as files without edges.
+Click a node to see its diff with syntax highlighting and `+/-` counts.
 
 ```bash
 septiembre changes                    # open the visual graph (branch vs main)
