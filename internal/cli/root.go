@@ -1,10 +1,11 @@
 // Package cli defines the Cobra command tree for the septiembre CLI.
 //
 // AGENT DISCOVERABILITY NOTE
-// This CLI is agent-first. JSON is the default output format.
+// This CLI is agent-first. JSON is the default output format, except
+// `septiembre changes`, which opens a visual graph unless --output is explicit.
 // Run `septiembre --help --json` to get the full command tree as a
-// machine-readable JSON object. All commands emit JSON to stdout on success
-// and JSON to stderr on error, making them trivially composable with jq.
+// machine-readable JSON object. Agent/script paths should pass --output json.
+// Commands emit JSON to stderr on error, making them composable with jq.
 package cli
 
 import (
@@ -31,8 +32,11 @@ func NewRootCmd() *cobra.Command {
 		Long: `septiembre is the command-line interface for the Septiembre cloud platform.
 
 AGENT USAGE
-  Default output is JSON. All commands print structured JSON to stdout and
-  JSON error envelopes to stderr. Use --output table for human-readable output.
+  Default output is JSON. Exception: septiembre changes opens a visual graph
+  unless --output json or --output table is explicit.
+
+  Commands print JSON error envelopes to stderr. Use --output json for scripts
+  and --output table for human-readable output.
 
   Machine-readable command tree:
     septiembre --help --json
@@ -51,7 +55,8 @@ AUTHENTICATION
   Tokens are created at: POST https://api.septiembre.ai/api/v1/auth/tokens
 
 GLOBAL FLAG VALIDATION
-  --output: one of json|table. json is the default and safest for automation.
+  --output: one of json|table. json is safest for automation and overrides
+    the visual default of septiembre changes.
   --org: organization slug used to resolve org-scoped API routes.
   --config: path to a septiembre config YAML file.
   --json: only affects help output when combined with --help.`,
@@ -64,7 +69,7 @@ GLOBAL FLAG VALIDATION
 
 	// Global persistent flags available on all subcommands.
 	root.PersistentFlags().StringVarP(&globalFormat, "output", "o", "json",
-		`Output format: one of json|table; json is the default and agent-friendly`)
+		`Output format: json|table; json is agent-friendly and overrides visual defaults`)
 	root.PersistentFlags().String("org", "",
 		"Organization slug; overrides config default for org-scoped commands")
 	root.PersistentFlags().String("config", "",
@@ -111,6 +116,7 @@ GLOBAL FLAG VALIDATION
 	root.AddCommand(NewServicesCmd())
 	root.AddCommand(NewDeploysCmd())
 	root.AddCommand(NewLogsCmd())
+	root.AddCommand(NewChangesCmd())
 	root.AddCommand(NewUpgradeCmd())
 
 	// root RunE: --version emits JSON (spec B-10a); otherwise show help.

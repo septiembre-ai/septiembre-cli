@@ -18,7 +18,7 @@ septiembre --help --json | jq '.commands'    # full command tree for LLM agents
 
 ## Agent-first contract
 
-JSON is the **default** output format. All commands print structured JSON to stdout and JSON error envelopes to stderr. This makes every command trivially composable with `jq` and usable from LLM agents without any flag changes.
+JSON is the **default** output format for automation. Exception: `septiembre changes` opens a local visual graph unless `--output json` or `--output table` is explicit. Commands print JSON error envelopes to stderr, so agent/script paths should pass `--output json` when they need guaranteed JSON stdout.
 
 ```bash
 # List apps — stdout is valid JSON
@@ -164,7 +164,7 @@ The file must be `0600` (owner read/write only). CI **must** use `SEPTIEMBRE_TOK
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--output json\|table` | `json` | Output format (JSON for agents, table for humans) |
+| `--output json\|table` | `json` | Output format (JSON for agents, table for humans; overrides `changes` visual default) |
 | `--org <slug>` | — | Organization slug (overrides config default) |
 | `--config <path>` | `~/.config/septiembre/config.yaml` | Config file path |
 | `--json` | — | With `--help`, emit machine-readable JSON command tree |
@@ -292,10 +292,11 @@ septiembre logs <app-id> --org <slug> --env-id <uuid>
 
 ## Output formats
 
-All commands default to JSON stdout. Use `--output table` for human-readable output:
+Commands default to JSON stdout for automation, except `septiembre changes`, which opens a visual graph unless `--output` is explicit. Use `--output table` for human-readable text:
 
 ```bash
 septiembre apps list --output table
+septiembre changes --output json
 ```
 
 ## Development
