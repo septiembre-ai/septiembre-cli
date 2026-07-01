@@ -1,6 +1,7 @@
 // Command septiembre is the agent-first CLI for the Septiembre cloud platform.
 //
-// It emits JSON to stdout by default and JSON error envelopes to stderr.
+// It emits JSON to stdout by default, except commands with documented visual
+// defaults such as `changes`; JSON error envelopes always go to stderr.
 // All exit codes are defined in internal/output/exit.go.
 package main
 
