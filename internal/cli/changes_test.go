@@ -291,14 +291,21 @@ func TestRootIncludesChangesCommand(t *testing.T) {
 }
 
 type fakeChangesBuilder struct {
-	base   string
-	called bool
-	graph  changes.Graph
-	err    error
+	base    string
+	release string
+	called  bool
+	graph   changes.Graph
+	err     error
 }
 
 func (f *fakeChangesBuilder) Build(_ context.Context, base string) (changes.Graph, error) {
 	f.base = base
+	f.called = true
+	return f.graph, f.err
+}
+
+func (f *fakeChangesBuilder) BuildRelease(_ context.Context, release string) (changes.Graph, error) {
+	f.release = release
 	f.called = true
 	return f.graph, f.err
 }

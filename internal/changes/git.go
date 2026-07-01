@@ -18,6 +18,11 @@ type GitClient interface {
 	ChangedFiles(ctx context.Context, base string) ([]Change, error)
 	Diffs(ctx context.Context, base string) (map[string]string, error)
 	Churn(ctx context.Context, base string) (map[string]Churn, error)
+	PreviousTag(ctx context.Context, tag string) (string, error)
+	ChangedFilesRange(ctx context.Context, from, to string) ([]Change, error)
+	DiffsRange(ctx context.Context, from, to string) (map[string]string, error)
+	ChurnRange(ctx context.Context, from, to string) (map[string]Churn, error)
+	Log(ctx context.Context, from, to string) ([]Commit, error)
 }
 
 // CommandRunner abstracts command execution so tests do not need a real Git repo.
@@ -328,6 +333,83 @@ func atoiOrZero(s string) int {
 		return 0
 	}
 	return n
+}
+
+// PreviousTag returns the most recent tag reachable from tag's first parent, or
+// an empty string (not an error) when tag has no predecessor (first release).
+func (g Git) PreviousTag(ctx context.Context, tag string) (string, error) {
+	out, err := g.runner().Run(ctx, g.RepoRoot, "git", "describe", "--tags", "--abbrev=0", tag+"^")
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ChangedFilesRange returns the files changed between two refs, with status.
+func (g Git) ChangedFilesRange(ctx context.Context, from, to string) ([]Change, error) {
+	out, err := g.runner().Run(ctx, g.RepoRoot, "git", "diff", "--name-status", "--diff-filter=ACMRD", from, to)
+	if err != nil {
+		return nil, fmt.Errorf("diff %s..%s: %w: %s", from, to, err, strings.TrimSpace(string(out)))
+	}
+	return uniqueSortedChanges(parseNameStatus(out)), nil
+}
+
+// DiffsRange returns the per-file unified diff between two refs.
+func (g Git) DiffsRange(ctx context.Context, from, to string) (map[string]string, error) {
+	out, err := g.runner().Run(ctx, g.RepoRoot, "git", "diff", from, to)
+	if err != nil {
+		return nil, fmt.Errorf("diff %s..%s: %w: %s", from, to, err, strings.TrimSpace(string(out)))
+	}
+	return parseUnifiedDiff(out), nil
+}
+
+// ChurnRange returns per-file added/deleted counts between two refs.
+func (g Git) ChurnRange(ctx context.Context, from, to string) (map[string]Churn, error) {
+	out, err := g.runner().Run(ctx, g.RepoRoot, "git", "diff", "--numstat", from, to)
+	if err != nil {
+		return nil, fmt.Errorf("numstat %s..%s: %w: %s", from, to, err, strings.TrimSpace(string(out)))
+	}
+	return parseNumstat(out), nil
+}
+
+// Log returns the non-merge commits in from..to (or all commits up to to when
+// from is empty), parsed as conventional-commit changelog entries.
+func (g Git) Log(ctx context.Context, from, to string) ([]Commit, error) {
+	rangeArg := to
+	if strings.TrimSpace(from) != "" {
+		rangeArg = from + ".." + to
+	}
+	out, err := g.runner().Run(ctx, g.RepoRoot, "git", "log", rangeArg, "--no-merges", "--pretty=format:%H%x09%s")
+	if err != nil {
+		return nil, fmt.Errorf("log %s: %w: %s", rangeArg, err, strings.TrimSpace(string(out)))
+	}
+	return parseCommits(out), nil
+}
+
+var conventionalRe = regexp.MustCompile(`^([a-z]+)(?:\(([^)]+)\))?(!)?:\s*(.+)$`)
+
+func parseCommits(out []byte) []Commit {
+	var commits []Commit
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		hash, subject := parts[0], parts[1]
+		commit := Commit{Hash: hash, Subject: strings.TrimSpace(subject)}
+		if m := conventionalRe.FindStringSubmatch(subject); m != nil {
+			commit.Type = m[1]
+			commit.Scope = m[2]
+			commit.Breaking = m[3] == "!"
+			commit.Subject = strings.TrimSpace(m[4])
+		}
+		commits = append(commits, commit)
+	}
+	return commits
 }
 
 func countAddedLines(repoRoot, path string) int {

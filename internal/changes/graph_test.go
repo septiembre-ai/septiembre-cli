@@ -349,11 +349,16 @@ func writeFile(t *testing.T, root, rel, content string) {
 }
 
 type fakeGit struct {
-	base  string
-	files []Change
-	diffs map[string]string
-	churn map[string]Churn
-	err   error
+	base       string
+	files      []Change
+	diffs      map[string]string
+	churn      map[string]Churn
+	commits    []Commit
+	prevTag    string
+	releaseTag string
+	rangeFrom  string
+	rangeTo    string
+	err        error
 }
 
 func (f *fakeGit) ChangedFiles(_ context.Context, base string) ([]Change, error) {
@@ -367,6 +372,28 @@ func (f *fakeGit) Diffs(_ context.Context, _ string) (map[string]string, error) 
 
 func (f *fakeGit) Churn(_ context.Context, _ string) (map[string]Churn, error) {
 	return f.churn, f.err
+}
+
+func (f *fakeGit) PreviousTag(_ context.Context, tag string) (string, error) {
+	f.releaseTag = tag
+	return f.prevTag, f.err
+}
+
+func (f *fakeGit) ChangedFilesRange(_ context.Context, from, to string) ([]Change, error) {
+	f.rangeFrom, f.rangeTo = from, to
+	return f.files, f.err
+}
+
+func (f *fakeGit) DiffsRange(_ context.Context, _, _ string) (map[string]string, error) {
+	return f.diffs, f.err
+}
+
+func (f *fakeGit) ChurnRange(_ context.Context, _, _ string) (map[string]Churn, error) {
+	return f.churn, f.err
+}
+
+func (f *fakeGit) Log(_ context.Context, _, _ string) ([]Commit, error) {
+	return f.commits, f.err
 }
 
 type fakeRunner struct {
