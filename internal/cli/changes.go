@@ -16,6 +16,7 @@ import (
 
 type changesBuilder interface {
 	Build(ctx context.Context, base string) (changes.Graph, error)
+	BuildRelease(ctx context.Context, release string) (changes.Graph, error)
 }
 
 type changesOpener interface {
@@ -54,6 +55,8 @@ OUTPUT
 VALIDATION / INPUTS
   No positional arguments.
   --base: branch to compare against. Defaults to main.
+  --release: a tag (e.g. v0.5.0). Graphs the range from the previous tag to it
+    and adds a changelog grouped by conventional-commit type. Overrides --base.
   Changed nodes are repo-relative paths.
   Edges are formatted as: path/a.go -> path/b.go.
   First implementation resolves Go imports under this module's internal/ tree.
@@ -62,7 +65,14 @@ VALIDATION / INPUTS
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			base, _ := cmd.Flags().GetString("base")
-			graph, err := builder.Build(cmd.Context(), base)
+			release, _ := cmd.Flags().GetString("release")
+			var graph changes.Graph
+			var err error
+			if release != "" {
+				graph, err = builder.BuildRelease(cmd.Context(), release)
+			} else {
+				graph, err = builder.Build(cmd.Context(), base)
+			}
 			if err != nil {
 				r := output.NewRenderer(OutputFormat(cmd), cmd.OutOrStdout(), cmd.ErrOrStderr())
 				code := r.RenderError(fmt.Sprintf("could not build changes graph: %v", err), "general_error", 500)
@@ -101,6 +111,7 @@ VALIDATION / INPUTS
 		},
 	}
 	cmd.Flags().String("base", "main", "Base branch to compare against")
+	cmd.Flags().String("release", "", "Graph and changelog for a release tag, compared against the previous tag (e.g. v0.5.0)")
 	return cmd
 }
 

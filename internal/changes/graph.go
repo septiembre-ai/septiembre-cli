@@ -40,17 +40,38 @@ type Churn struct {
 	Deleted int `json:"deleted"`
 }
 
+// Commit is a single changelog entry parsed from a conventional-commit subject.
+type Commit struct {
+	Hash     string `json:"hash"`
+	Type     string `json:"type"`
+	Scope    string `json:"scope"`
+	Subject  string `json:"subject"`
+	Breaking bool   `json:"breaking"`
+}
+
+// ChangelogGroup is a titled bucket of commits (e.g. Features, Fixes).
+type ChangelogGroup struct {
+	Title   string   `json:"title"`
+	Commits []Commit `json:"commits"`
+}
+
+// emptyTree is git's canonical empty tree object, used as the "from" side when a
+// release has no previous tag (first release).
+const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
 // Graph contains changed files, internal Go import edges, and a per-file status
 // map keyed by node path (values are Status strings). Import targets that were
 // not themselves changed do not appear in Statuses; consumers render them as
 // context nodes.
 type Graph struct {
-	Base     string            `json:"base"`
-	Nodes    []string          `json:"nodes"`
-	Edges    []Edge            `json:"edges"`
-	Statuses map[string]string `json:"statuses,omitempty"`
-	Diffs    map[string]string `json:"diffs,omitempty"`
-	Churn    map[string]Churn  `json:"churn,omitempty"`
+	Base      string            `json:"base"`
+	Nodes     []string          `json:"nodes"`
+	Edges     []Edge            `json:"edges"`
+	Statuses  map[string]string `json:"statuses,omitempty"`
+	Diffs     map[string]string `json:"diffs,omitempty"`
+	Churn     map[string]Churn  `json:"churn,omitempty"`
+	Release   string            `json:"release,omitempty"`
+	Changelog []ChangelogGroup  `json:"changelog,omitempty"`
 }
 
 // Builder builds a changes graph for a repository.
@@ -87,6 +108,88 @@ func (b Builder) Build(ctx context.Context, base string) (Graph, error) {
 	}
 	graph.Churn = churn
 	return graph, nil
+}
+
+// BuildRelease builds a graph plus changelog for the range between the tag
+// before release and release. Nodes, diffs, and churn come from git and are
+// exact; import edges are resolved from the working tree, so they are accurate
+// when release equals HEAD and approximate for older tags.
+func (b Builder) BuildRelease(ctx context.Context, release string) (Graph, error) {
+	release = strings.TrimSpace(release)
+	if release == "" {
+		return Graph{}, fmt.Errorf("release tag is required")
+	}
+	git := b.Git
+	if git == nil {
+		git = Git{RepoRoot: b.RepoRoot}
+	}
+	from, err := git.PreviousTag(ctx, release)
+	if err != nil {
+		return Graph{}, err
+	}
+	fromRef := from
+	if fromRef == "" {
+		fromRef = emptyTree
+	}
+	changed, err := git.ChangedFilesRange(ctx, fromRef, release)
+	if err != nil {
+		return Graph{}, err
+	}
+	graph, err := BuildGraph(b.RepoRoot, from, changed)
+	if err != nil {
+		return Graph{}, err
+	}
+	diffs, err := git.DiffsRange(ctx, fromRef, release)
+	if err != nil {
+		return Graph{}, err
+	}
+	graph.Diffs = diffs
+	churn, err := git.ChurnRange(ctx, fromRef, release)
+	if err != nil {
+		return Graph{}, err
+	}
+	graph.Churn = churn
+	commits, err := git.Log(ctx, from, release)
+	if err != nil {
+		return Graph{}, err
+	}
+	graph.Changelog = groupCommits(commits)
+	graph.Release = release
+	return graph, nil
+}
+
+// groupCommits buckets commits by conventional-commit type in a fixed display
+// order; breaking changes are pulled into their own group regardless of type.
+func groupCommits(commits []Commit) []ChangelogGroup {
+	order := []struct{ key, title string }{
+		{"breaking", "💥 Breaking Changes"},
+		{"feat", "✨ Features"},
+		{"fix", "🐛 Fixes"},
+		{"perf", "⚡ Performance"},
+		{"refactor", "♻️ Refactoring"},
+		{"docs", "📝 Documentation"},
+		{"other", "🔧 Other"},
+	}
+	buckets := make(map[string][]Commit)
+	for _, c := range commits {
+		key := "other"
+		if c.Breaking {
+			key = "breaking"
+		} else {
+			switch c.Type {
+			case "feat", "fix", "perf", "refactor", "docs":
+				key = c.Type
+			}
+		}
+		buckets[key] = append(buckets[key], c)
+	}
+	var groups []ChangelogGroup
+	for _, o := range order {
+		if cs := buckets[o.key]; len(cs) > 0 {
+			groups = append(groups, ChangelogGroup{Title: o.title, Commits: cs})
+		}
+	}
+	return groups
 }
 
 // BuildGraph builds a deterministic import graph for the supplied changes.
