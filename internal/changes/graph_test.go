@@ -85,6 +85,7 @@ func TestBuildGraph(t *testing.T) {
 			if err != nil {
 				t.Fatalf("BuildGraph: %v", err)
 			}
+			got.Repository = ""
 			got.Checklist = nil // checklist is covered by TestBuildChecklist
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("BuildGraph() = %#v, want %#v", got, tt.want)
@@ -111,6 +112,9 @@ func TestBuildUsesGitChangedFiles(t *testing.T) {
 	if graph.Base != "develop" {
 		t.Fatalf("graph base = %q, want develop", graph.Base)
 	}
+	if graph.Repository != filepath.Base(repo) {
+		t.Fatalf("graph repository = %q, want %q", graph.Repository, filepath.Base(repo))
+	}
 	if len(graph.Edges) != 2 {
 		t.Fatalf("edges len = %d, want 2", len(graph.Edges))
 	}
@@ -119,6 +123,21 @@ func TestBuildUsesGitChangedFiles(t *testing.T) {
 	}
 	if got := graph.Churn["internal/cli/changes.go"]; got != (Churn{Added: 5, Deleted: 2}) {
 		t.Fatalf("graph churn = %#v, want {5 2}", got)
+	}
+}
+
+func TestBuildGraphAddsRepositoryName(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "septiembre-cli")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	graph, err := BuildGraph(repo, "main", []Change{{Path: "README.md", Status: StatusModified}})
+	if err != nil {
+		t.Fatalf("BuildGraph: %v", err)
+	}
+	if graph.Repository != "septiembre-cli" {
+		t.Fatalf("repository = %q, want septiembre-cli", graph.Repository)
 	}
 }
 
@@ -262,9 +281,10 @@ func TestDiscoverRepoRootFailure(t *testing.T) {
 
 func TestWriteHTMLGraphIncludesSafeDeterministicNodesAndEdges(t *testing.T) {
 	graph := Graph{
-		Base:  "main",
-		Nodes: []string{"internal/cli/<changes>.go", "README.md"},
-		Edges: []Edge{{From: "internal/cli/<changes>.go", To: "internal/changes/graph.go"}},
+		Repository: "septiembre-cli",
+		Base:       "main",
+		Nodes:      []string{"internal/cli/<changes>.go", "README.md"},
+		Edges:      []Edge{{From: "internal/cli/<changes>.go", To: "internal/changes/graph.go"}},
 	}
 	var first bytes.Buffer
 	if err := WriteHTMLGraph(&first, graph); err != nil {
@@ -287,12 +307,23 @@ func TestWriteHTMLGraphIncludesSafeDeterministicNodesAndEdges(t *testing.T) {
 	decoded := decodeEmbeddedGraphData(t, html)
 	for _, want := range []string{
 		`"base":"main"`,
-		`"id":"README.md","status":"modified"`,
-		`"id":"internal/changes/graph.go","status":"context"`,
+		`"repository":"septiembre-cli"`,
+		`"id":"README.md"`,
+		`"type":"docs"`,
+		`"id":"internal/changes/graph.go"`,
+		`"status":"context"`,
 		`"from":"internal/cli/\u003cchanges\u003e.go","to":"internal/changes/graph.go"`,
+		`activeTypes`,
+		`applyFilters`,
+		`target.status === 'context'`,
+		`source.status === 'context'`,
+		`if (graph.repository) { titleEl.textContent = graph.repository; document.title = graph.repository + ' changes'; }`,
+		`path.style.display = (visibleIds.has(source.id) && visibleIds.has(target.id)) ? '' : 'none'`,
+		`group.style.display = visibleIds.has(nodes[i].id) ? '' : 'none'`,
+		`const content = (kind === 'add' || kind === 'del') ? line.slice(1) : line`,
 	} {
-		if !strings.Contains(decoded, want) {
-			t.Fatalf("decoded graph data missing %q in %s", want, decoded)
+		if !strings.Contains(decoded+html, want) {
+			t.Fatalf("HTML/decoded graph data missing %q in decoded=%s", want, decoded)
 		}
 	}
 }
@@ -390,23 +421,65 @@ func TestBuildChecklist(t *testing.T) {
 		"internal/cli/changes_test.go",
 		"docs/guide.md",
 		"CHANGELOG.md",
+		"database/migrations/20260701123000_create_users.sql",
 	})
-	for _, key := range []string{"code", "tests", "docs", "changelog"} {
+	for _, key := range []string{"code", "tests", "docs", "changelog", "migrations"} {
 		if !all[key] {
 			t.Fatalf("%s should be satisfied", key)
 		}
 	}
 
 	// A lone changelog must not count as docs or code; a test file is not code.
-	partial := flags([]string{"CHANGELOG.md", "pkg/foo_test.go"})
+	partial := flags([]string{"CHANGELOG.md", "pkg/foo_test.go", "db/migrate/20260701123000_create_users.rb", "V2__add_index.sql", "001_create_users.sql"})
 	if partial["docs"] {
 		t.Fatal("changelog alone must not satisfy docs")
 	}
 	if partial["code"] {
-		t.Fatal("a test file alone must not satisfy source code")
+		t.Fatal("test and migration files alone must not satisfy source code")
 	}
-	if !partial["tests"] || !partial["changelog"] {
-		t.Fatalf("tests/changelog should be satisfied: %#v", partial)
+	if !partial["tests"] || !partial["changelog"] || !partial["migrations"] {
+		t.Fatalf("tests/changelog/migrations should be satisfied: %#v", partial)
+	}
+
+	liquibase := flags([]string{"db/changelog.xml", "database/changelog.yaml", "database/changelog.json"})
+	if !liquibase["migrations"] {
+		t.Fatalf("liquibase changelog files should satisfy migrations: %#v", liquibase)
+	}
+	if liquibase["changelog"] {
+		t.Fatalf("liquibase changelog files must not satisfy release changelog: %#v", liquibase)
+	}
+
+	rootJSONChangelog := flags([]string{"CHANGELOG.json"})
+	if !rootJSONChangelog["changelog"] || rootJSONChangelog["migrations"] {
+		t.Fatalf("root changelog should be release changelog only: %#v", rootJSONChangelog)
+	}
+}
+
+func TestNodeChecklistType(t *testing.T) {
+	tests := []struct {
+		name   string
+		path   string
+		status string
+		want   string
+	}{
+		{name: "context", path: "internal/changes/graph.go", status: "context", want: "context"},
+		{name: "source code", path: "internal/changes/graph.go", status: "modified", want: "code"},
+		{name: "test", path: "internal/changes/graph_test.go", status: "modified", want: "tests"},
+		{name: "docs", path: "docs/guide.md", status: "modified", want: "docs"},
+		{name: "migration", path: "db/migrate/20260701123000_create_users.rb", status: "modified", want: "migrations"},
+		{name: "liquibase changelog migration", path: "db/changelog.xml", status: "modified", want: "migrations"},
+		{name: "database changelog migration", path: "database/changelog.yaml", status: "modified", want: "migrations"},
+		{name: "changelog", path: "CHANGELOG.md", status: "modified", want: "changelog"},
+		{name: "nested changelog is not release changelog", path: "docs/CHANGELOG.md", status: "modified", want: "docs"},
+		{name: "uncategorized", path: "package.json", status: "modified", want: "other"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := nodeChecklistType(tt.path, tt.status); got != tt.want {
+				t.Fatalf("nodeChecklistType(%q, %q) = %q, want %q", tt.path, tt.status, got, tt.want)
+			}
+		})
 	}
 }
 

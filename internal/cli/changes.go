@@ -172,7 +172,11 @@ func normalizeChangesGraph(graph changes.Graph) changes.Graph {
 }
 
 func renderChangesGraph(w io.Writer, graph changes.Graph) error {
-	if _, err := fmt.Fprintf(w, "Changes graph (base: %s)\n", graph.Base); err != nil {
+	header := fmt.Sprintf("Changes graph (base: %s)", graph.Base)
+	if graph.Repository != "" {
+		header = fmt.Sprintf("Changes graph for %s (base: %s)", graph.Repository, graph.Base)
+	}
+	if _, err := fmt.Fprintln(w, header); err != nil {
 		return err
 	}
 	if len(graph.Checklist) > 0 {

@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-02
+
+### Added
+
+- `changes` visual report now shows the repository name as the report title and includes repository metadata in machine-readable output.
+- `changes` readiness checklist now detects database migrations.
+- `changes` visual checklist items can be toggled as graph filters, making it possible to focus the file graph on tests, migrations, docs, source code, or changelog entries.
+
+### Changed
+
+- `changes` diff panel now relies on red/green line color for deleted/added lines and hides redundant leading diff markers.
+
+### Fixed
+
+- `changes` visual checklist filters now hide SVG nodes and edges reliably and keep filter controls aligned with the rest of the sidebar UI.
+
 ## [0.1.0] - 2026-06-12
 
 Initial public release. Includes the full agent-first command surface: `auth` (whoami, token create/list/revoke), `orgs list`, `teams list`, `apps` (list, get, create, delete), `env` (get, set), `deploys` (trigger, list, status), `logs`, JSON-first output with `--output table`, machine-readable `--help --json`, and the 0–5 exit-code contract.

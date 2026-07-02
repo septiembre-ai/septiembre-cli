@@ -64,15 +64,16 @@ const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 // not themselves changed do not appear in Statuses; consumers render them as
 // context nodes.
 type Graph struct {
-	Base      string            `json:"base"`
-	Nodes     []string          `json:"nodes"`
-	Edges     []Edge            `json:"edges"`
-	Statuses  map[string]string `json:"statuses,omitempty"`
-	Diffs     map[string]string `json:"diffs,omitempty"`
-	Churn     map[string]Churn  `json:"churn,omitempty"`
-	Release   string            `json:"release,omitempty"`
-	Changelog []ChangelogGroup  `json:"changelog,omitempty"`
-	Checklist []ChecklistItem   `json:"checklist,omitempty"`
+	Repository string            `json:"repository,omitempty"`
+	Base       string            `json:"base"`
+	Nodes      []string          `json:"nodes"`
+	Edges      []Edge            `json:"edges"`
+	Statuses   map[string]string `json:"statuses,omitempty"`
+	Diffs      map[string]string `json:"diffs,omitempty"`
+	Churn      map[string]Churn  `json:"churn,omitempty"`
+	Release    string            `json:"release,omitempty"`
+	Changelog  []ChangelogGroup  `json:"changelog,omitempty"`
+	Checklist  []ChecklistItem   `json:"checklist,omitempty"`
 }
 
 // ChecklistItem is a yes/no readiness signal computed from the changed files.
@@ -109,6 +110,7 @@ func (b Builder) Build(ctx context.Context, base string) (Graph, error) {
 	if err != nil {
 		return Graph{}, err
 	}
+	graph.Repository = repositoryName(b.RepoRoot)
 	graph.Diffs = diffs
 	churn, err := git.Churn(ctx, base)
 	if err != nil {
@@ -213,12 +215,26 @@ func BuildGraph(repoRoot, base string, changes []Change) (Graph, error) {
 		statuses[change.Path] = string(change.Status)
 	}
 	return Graph{
-		Base:      base,
-		Nodes:     nodes,
-		Edges:     buildImportEdges(repoRoot, changes),
-		Statuses:  statuses,
-		Checklist: buildChecklist(nodes),
+		Repository: repositoryName(repoRoot),
+		Base:       base,
+		Nodes:      nodes,
+		Edges:      buildImportEdges(repoRoot, changes),
+		Statuses:   statuses,
+		Checklist:  buildChecklist(nodes),
 	}, nil
+}
+
+func repositoryName(repoRoot string) string {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return ""
+	}
+	clean := filepath.Clean(repoRoot)
+	base := filepath.Base(clean)
+	if base == "." || base == string(filepath.Separator) {
+		return ""
+	}
+	return base
 }
 
 // ReadModulePath returns the module directive from go.mod.

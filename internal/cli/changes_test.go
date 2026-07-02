@@ -27,9 +27,10 @@ func changesExitCode(err error) int {
 
 func TestChangesCommandDefaultOutputOpensVisualGraph(t *testing.T) {
 	builder := &fakeChangesBuilder{graph: changes.Graph{
-		Base:  "main",
-		Nodes: []string{"README.md", "internal/cli/changes.go"},
-		Edges: []changes.Edge{{From: "internal/cli/changes.go", To: "internal/changes/graph.go"}},
+		Repository: "septiembre-cli",
+		Base:       "main",
+		Nodes:      []string{"README.md", "internal/cli/changes.go"},
+		Edges:      []changes.Edge{{From: "internal/cli/changes.go", To: "internal/changes/graph.go"}},
 	}}
 	opener := &fakeChangesOpener{}
 	cmd := newChangesCmdWithOpener(builder, opener)
@@ -67,9 +68,13 @@ func TestChangesCommandDefaultOutputOpensVisualGraph(t *testing.T) {
 
 func TestChangesCommandExplicitJSONOutput(t *testing.T) {
 	builder := &fakeChangesBuilder{graph: changes.Graph{
-		Base:  "main",
-		Nodes: []string{"README.md", "internal/cli/changes.go"},
-		Edges: []changes.Edge{{From: "internal/cli/changes.go", To: "internal/changes/graph.go"}},
+		Repository: "septiembre-cli",
+		Base:       "main",
+		Nodes:      []string{"README.md", "internal/cli/changes.go"},
+		Edges:      []changes.Edge{{From: "internal/cli/changes.go", To: "internal/changes/graph.go"}},
+		Checklist: []changes.ChecklistItem{
+			{Key: "migrations", Label: "Database migrations", OK: false},
+		},
 	}}
 	opener := &fakeChangesOpener{}
 	cmd := newChangesCmdWithOpener(builder, opener)
@@ -191,6 +196,29 @@ func TestChangesCommandTableOutput(t *testing.T) {
 				"  internal/cli/changes.go",
 				"Edges:",
 				"  internal/cli/changes.go -> internal/changes/graph.go",
+				"",
+			}, "\n"),
+		},
+		{
+			name: "repository and checklist render in table",
+			args: []string{"--output", "table"},
+			graph: changes.Graph{
+				Repository: "septiembre-cli",
+				Base:       "main",
+				Nodes:      []string{"db/migrations/20260701120000_create_users.sql"},
+				Checklist: []changes.ChecklistItem{
+					{Key: "migrations", Label: "Database migrations", OK: true},
+				},
+			},
+			wantBase: "main",
+			wantOut: strings.Join([]string{
+				"Changes graph for septiembre-cli (base: main)",
+				"Checklist:",
+				"  [x] Database migrations",
+				"Nodes:",
+				"  db/migrations/20260701120000_create_users.sql",
+				"Edges:",
+				"  (none)",
 				"",
 			}, "\n"),
 		},
