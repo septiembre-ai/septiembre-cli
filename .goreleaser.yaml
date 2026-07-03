@@ -24,6 +24,7 @@ builds:
       - -X github.com/septiembre-ai/septiembre-cli/internal/version.Version={{.Version}}
       - -X github.com/septiembre-ai/septiembre-cli/internal/version.Commit={{.Commit}}
       - -X github.com/septiembre-ai/septiembre-cli/internal/version.BuiltAt={{.Date}}
+      - -X github.com/septiembre-ai/septiembre-cli/internal/credentials.DefaultCognitoClientID={{.Env.SEPTIEMBRE_COGNITO_CLIENT_ID}}
 
 archives:
   - id: septiembre
