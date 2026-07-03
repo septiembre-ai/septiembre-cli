@@ -137,6 +137,22 @@ func TestCognitoDomainFromPath_BareDomainGetsScheme(t *testing.T) {
 	})
 }
 
+// TestCognitoDomainFromPath_HTTPSchemePreserved proves normalizeCognitoDomain
+// only prepends https:// when no scheme is present at all — an explicit
+// http:// value (e.g. a local Cognito emulator) is passed through unchanged,
+// not force-upgraded to https://.
+func TestCognitoDomainFromPath_HTTPSchemePreserved(t *testing.T) {
+	// Not parallel: uses t.Setenv.
+	t.Setenv("SEPTIEMBRE_COGNITO_DOMAIN", "http://localhost:9229")
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml") // does not exist
+
+	domain := CognitoDomainFromPath(cfgPath)
+	if domain != "http://localhost:9229" {
+		t.Errorf("domain = %q, want 'http://localhost:9229' (explicit http:// must be preserved, not upgraded)", domain)
+	}
+}
+
 func TestCognitoClientIDFromPath_EnvOverride(t *testing.T) {
 	// Not parallel: uses t.Setenv.
 	dir := t.TempDir()
