@@ -33,7 +33,7 @@ func occupy(t *testing.T, port int) {
 	if err != nil {
 		t.Fatalf("occupy port %d: %v", port, err)
 	}
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { _ = ln.Close() })
 }
 
 // mustListen binds ports or fails the test, closing the listener on cleanup.
@@ -43,7 +43,7 @@ func mustListen(t *testing.T, ports []int) *Listener {
 	if err != nil {
 		t.Fatalf("Listen() error: %v", err)
 	}
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() })
 	return l
 }
 
