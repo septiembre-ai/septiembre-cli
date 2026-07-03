@@ -91,7 +91,7 @@ func loginFakeCognito(t *testing.T, idToken string) *httptest.Server {
 		if err := r.ParseForm(); err != nil {
 			t.Fatalf("parse form: %v", err)
 		}
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"id_token":%q}`, idToken)))
+		_, _ = fmt.Fprintf(w, `{"id_token":%q}`, idToken)
 	}))
 }
 
@@ -155,10 +155,10 @@ func cloudAPIStub(t *testing.T, idTokenForMint, patToken string, mintStatus int)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(fmt.Sprintf(
+			_, _ = fmt.Fprintf(w,
 				`{"id":"tok-1","name":"cli-test","token":%q,"last_four":"abcd","status":"active","created_at":"2026-01-01T00:00:00Z"}`,
 				patToken,
-			)))
+			)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/auth/me":
 			if got := r.Header.Get("Authorization"); got != "Bearer "+patToken {
 				t.Errorf("Whoami Authorization = %q, want Bearer %s", got, patToken)
