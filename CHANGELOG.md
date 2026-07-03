@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-03
+
+### Added
+
+- `septiembre login` — browser-based authentication via Cognito Authorization Code + PKCE. Opens the default browser to the Cognito hosted UI, receives the callback on a local loopback server (127.0.0.1, ports 8976-8978), mints a personal access token, and saves it through the existing credentials chain. Falls back to printing the authorize URL when the browser cannot be opened (e.g. over SSH). `auth login` (PAT-based) remains available and unchanged for CI/agent use.
+
 ## [0.9.0] - 2026-07-02
 
 ### Added
