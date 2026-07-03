@@ -31,7 +31,7 @@ func fakeCognito(t *testing.T, wantCode, idToken string, tokenErr bool) *httptes
 		if wantCode != "" && r.Form.Get("code") != wantCode {
 			t.Errorf("code = %q, want %q", r.Form.Get("code"), wantCode)
 		}
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"id_token":%q}`, idToken)))
+		_, _ = fmt.Fprintf(w, `{"id_token":%q}`, idToken)
 	}))
 }
 
