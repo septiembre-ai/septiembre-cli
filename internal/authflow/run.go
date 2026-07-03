@@ -73,7 +73,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	if writer == nil {
 		writer = io.Discard
 	}
-	fmt.Fprintf(writer, "Open this URL to continue logging in:\n%s\n", authorizeURL)
+	_, _ = fmt.Fprintf(writer, "Open this URL to continue logging in:\n%s\n", authorizeURL)
 
 	opener := cfg.BrowserOpener
 	if opener == nil {
