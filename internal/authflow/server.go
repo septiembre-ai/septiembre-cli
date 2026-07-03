@@ -174,6 +174,6 @@ func writeCallbackPage(w http.ResponseWriter, err error) {
 func writePage(w http.ResponseWriter, status int, title, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	fmt.Fprintf(w, "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>%s</title></head>"+
+	_, _ = fmt.Fprintf(w, "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>%s</title></head>"+
 		"<body><h1>%s</h1><p>%s</p></body></html>\n", title, title, message)
 }
