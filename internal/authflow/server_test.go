@@ -275,9 +275,9 @@ func concurrentCallbackRaceOnce(t *testing.T, final bool) bool {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
 	conn1 := dialAndSend(t, addr, "/callback?code=code-one&state=expected-state")
-	defer conn1.Close()
+	defer func() { _ = conn1.Close() }()
 	conn2 := dialAndSend(t, addr, "/callback?code=code-two&state=expected-state")
-	defer conn2.Close()
+	defer func() { _ = conn2.Close() }()
 	// Give the kernel time to fully buffer both requests before Serve starts
 	// accepting: this guarantees both Read()s resolve instantly (no
 	// straggling StateNew connection that Shutdown could reap mid-flight).
