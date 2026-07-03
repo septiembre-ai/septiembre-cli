@@ -274,4 +274,7 @@ func TestBuildAuthorizeURL_TrailingSlashDomain(t *testing.T) {
 	if !strings.HasPrefix(got, "https://auth.example.com/oauth2/authorize?") {
 		t.Errorf("buildAuthorizeURL() = %q, want prefix %q", got, "https://auth.example.com/oauth2/authorize?")
 	}
+	if !strings.Contains(got, "code_challenge_method=S256") {
+		t.Errorf("buildAuthorizeURL() = %q, want code_challenge_method=S256 parameter", got)
+	}
 }
