@@ -36,7 +36,7 @@ VALIDATION / INPUTS
   Cognito configuration: resolved via SEPTIEMBRE_COGNITO_DOMAIN /
   SEPTIEMBRE_COGNITO_CLIENT_ID env vars, then the "cognito_domain" /
   "cognito_client_id" config keys, then the build-time default. The client
-  id must be provisioned (see docs/cognito-cli-client.md); an empty client
+  id must be provisioned (see docs/cognito-cli-client.md in the cloud-api repo); an empty client
   id fails fast before any browser or network call.
 
 EXIT CODES
@@ -53,7 +53,7 @@ EXIT CODES
 			clientID := credentials.CognitoClientIDFromPath(configPath)
 			if clientID == "" {
 				r.RenderError(
-					"cognito client id not configured — this build was not provisioned with a Cognito app client (see docs/cognito-cli-client.md)",
+					"cognito client id not configured — this build was not provisioned with a Cognito app client (see docs/cognito-cli-client.md in the cloud-api repo)",
 					"validation_error",
 					-1,
 				)
