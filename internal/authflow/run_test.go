@@ -130,8 +130,23 @@ func TestRun(t *testing.T) {
 			if tt.idToken != "" && strings.Contains(out, tt.idToken) {
 				t.Errorf("writer output leaked the id_token: %q", out)
 			}
-			if tt.wantCode != "" && strings.Contains(out, tt.wantCode) {
+			// Check the code value actually used in this subtest's callback
+			// (tt.extra), not tt.wantCode — some rows (e.g. state mismatch)
+			// send a code to the loopback callback that never reaches
+			// Cognito, so tt.wantCode is empty even though a code value was
+			// used. Running this on every row (not just where wantCode is
+			// set) is the gate-required fix.
+			if codeUsed := tt.extra.Get("code"); codeUsed != "" && strings.Contains(out, codeUsed) {
 				t.Errorf("writer output leaked the authorization code: %q", out)
+			}
+			// The PKCE verifier is generated internally by Run and never
+			// exposed to the test, so it cannot be checked by value. Instead
+			// assert the authorize URL construction never includes the
+			// code_verifier parameter name at all — that value belongs only
+			// in the token exchange POST body (exchange.go), never in any
+			// writer output.
+			if strings.Contains(out, "code_verifier") {
+				t.Errorf("writer output leaked the PKCE verifier parameter: %q", out)
 			}
 
 			if tt.wantErr == nil {
@@ -173,6 +188,9 @@ func TestRun_CallbackTimeout(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "/oauth2/authorize") {
 		t.Errorf("writer output = %q, want it to contain the authorize URL", buf.String())
+	}
+	if strings.Contains(buf.String(), "code_verifier") {
+		t.Errorf("writer output leaked the PKCE verifier parameter: %q", buf.String())
 	}
 }
 
@@ -238,6 +256,9 @@ func TestRun_BrowserOpenFailureIsNonFatal(t *testing.T) {
 	}
 	if result == nil || result.IDToken != "id-token-xyz" {
 		t.Fatalf("Run() result = %+v, want IDToken %q", result, "id-token-xyz")
+	}
+	if strings.Contains(buf.String(), "code_verifier") {
+		t.Errorf("writer output leaked the PKCE verifier parameter: %q", buf.String())
 	}
 }
 
