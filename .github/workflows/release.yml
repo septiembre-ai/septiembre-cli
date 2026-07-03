@@ -45,6 +45,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          # Public Cognito app client ID baked into release binaries via
+          # goreleaser ldflags (see .goreleaser.yaml). Not a secret.
+          SEPTIEMBRE_COGNITO_CLIENT_ID: ${{ vars.SEPTIEMBRE_COGNITO_CLIENT_ID }}
 
   install-smoke:
     name: Install smoke (${{ matrix.os }})
