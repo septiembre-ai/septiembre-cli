@@ -7,7 +7,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -45,11 +47,6 @@ func mustListen(t *testing.T, ports []int) *Listener {
 	}
 	t.Cleanup(func() { _ = l.Close() })
 	return l
-}
-
-type callbackOutcome struct {
-	result *CallbackResult
-	err    error
 }
 
 // waitAsync runs WaitForCallback in a goroutine so callers send it concurrently.
@@ -246,30 +243,43 @@ func tryReadRawResponse(conn net.Conn) (status int, body string, err error) {
 	return resp.StatusCode, string(b), nil
 }
 
-// TestListener_WaitForCallback_ConcurrentSecondCallback proves that when two
-// callbacks race for the single-use handler, exactly one is processed and
-// the other gets the 410 Gone one-shot page — regardless of which request
-// happens to reach the handler first. The harness pre-buffers both raw
-// requests before Serve starts to make the race land reliably; a bounded
-// retry absorbs the rare case where goroutine scheduling still drops one
-// side's connection before it can read a response, without weakening the
-// assertion itself.
-func TestListener_WaitForCallback_ConcurrentSecondCallback(t *testing.T) {
-	const maxAttempts = 5
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if concurrentCallbackRaceOnce(t, attempt == maxAttempts) {
-			return
+// TestCallbackHandler_SecondRequestGetsGone deterministically pins the 410
+// one-shot branch: the first request consumes the sync.Once, the second gets
+// the Gone page. No TCP race involved, so this cannot flake on scheduling.
+func TestCallbackHandler_SecondRequestGetsGone(t *testing.T) {
+	var once sync.Once
+	outcomeCh := make(chan callbackOutcome, 1)
+	h := callbackHandler("expected-state", &once, outcomeCh)
+
+	rec1 := httptest.NewRecorder()
+	h(rec1, httptest.NewRequest(http.MethodGet, "/callback?code=code-one&state=expected-state", nil))
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("first request status = %d, want %d", rec1.Code, http.StatusOK)
+	}
+
+	rec2 := httptest.NewRecorder()
+	h(rec2, httptest.NewRequest(http.MethodGet, "/callback?code=code-two&state=expected-state", nil))
+	if rec2.Code != http.StatusGone {
+		t.Fatalf("second request status = %d, want %d", rec2.Code, http.StatusGone)
+	}
+	if !strings.Contains(rec2.Body.String(), "already used") {
+		t.Fatalf("410 body = %q, want the one-shot 'already used' page", rec2.Body.String())
+	}
+	for _, rec := range []*httptest.ResponseRecorder{rec1, rec2} {
+		if strings.Contains(rec.Body.String(), "code-one") || strings.Contains(rec.Body.String(), "code-two") {
+			t.Fatal("response body leaked a secret code value")
 		}
 	}
 }
 
-// concurrentCallbackRaceOnce runs one attempt of the race scenario. It
-// returns true once the invariant (exactly one 410 Gone, one processed
-// response, neither leaking the secret code) was firmly asserted. It
-// returns false only on a harness-side connection hiccup, unless final is
-// true, in which case it fails the test outright instead of retrying.
-func concurrentCallbackRaceOnce(t *testing.T, final bool) bool {
-	t.Helper()
+// TestListener_WaitForCallback_ConcurrentSecondCallback proves that when two
+// callbacks race for the single-use handler, exactly one is processed and no
+// secret leaks — regardless of scheduling. The losing request legitimately
+// sees either the 410 Gone page (it reached the handler before shutdown) or a
+// dropped connection (Shutdown reaped it first); both preserve the one-shot
+// invariant. The 410 page itself is pinned deterministically by
+// TestCallbackHandler_SecondRequestGetsGone.
+func TestListener_WaitForCallback_ConcurrentSecondCallback(t *testing.T) {
 	port := freePort(t)
 	l := mustListen(t, []int{port})
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
@@ -279,48 +289,53 @@ func concurrentCallbackRaceOnce(t *testing.T, final bool) bool {
 	conn2 := dialAndSend(t, addr, "/callback?code=code-two&state=expected-state")
 	defer func() { _ = conn2.Close() }()
 	// Give the kernel time to fully buffer both requests before Serve starts
-	// accepting: this guarantees both Read()s resolve instantly (no
-	// straggling StateNew connection that Shutdown could reap mid-flight).
+	// accepting, so both land in the race window.
 	time.Sleep(20 * time.Millisecond)
 
 	resultCh := waitAsync(context.Background(), l, "expected-state")
 
-	status1, body1, err1 := tryReadRawResponse(conn1)
-	status2, body2, err2 := tryReadRawResponse(conn2)
-	<-resultCh
-
-	// A harness-side connection read hiccup (see dialAndSend/tryReadRawResponse
-	// doc comments) is retried, up to maxAttempts. Any invariant mismatch below
-	// is a real assertion and MUST fail immediately — it is never retried, even
-	// on a non-final attempt, since retrying would mask a genuine server bug.
-	if err1 != nil || err2 != nil {
-		if !final {
-			return false
-		}
-		t.Fatalf("read raw responses: err1=%v err2=%v", err1, err2)
-	}
-
-	goneCount, okCount := 0, 0
-	for _, r := range []struct {
+	responses := []struct {
 		status int
 		body   string
-	}{{status1, body1}, {status2, body2}} {
-		if strings.Contains(r.body, "code-one") || strings.Contains(r.body, "code-two") {
-			t.Fatal("response body leaked a secret code value")
-		}
-		if r.status == http.StatusGone {
-			goneCount++
+		err    error
+	}{}
+	for _, conn := range []net.Conn{conn1, conn2} {
+		status, body, err := tryReadRawResponse(conn)
+		responses = append(responses, struct {
+			status int
+			body   string
+			err    error
+		}{status, body, err})
+	}
+	out := <-resultCh
+	if out.err != nil {
+		t.Fatalf("WaitForCallback error: %v", out.err)
+	}
+
+	ok, gone, dropped := 0, 0, 0
+	for _, r := range responses {
+		switch {
+		case r.err != nil:
+			// Shutdown reaped the losing connection before its response was
+			// written — a legitimate outcome of the race, the one-shot
+			// invariant still holds.
+			dropped++
+			continue
+		case r.status == http.StatusGone:
+			gone++
 			if !strings.Contains(r.body, "already used") {
 				t.Fatalf("410 body = %q, want the one-shot 'already used' page", r.body)
 			}
-		} else {
-			okCount++
+		default:
+			ok++
+		}
+		if strings.Contains(r.body, "code-one") || strings.Contains(r.body, "code-two") {
+			t.Fatal("response body leaked a secret code value")
 		}
 	}
-	if goneCount != 1 || okCount != 1 {
-		t.Fatalf("gone=%d ok=%d, want exactly one 410 Gone and one processed response", goneCount, okCount)
+	if ok != 1 || gone+dropped != 1 {
+		t.Fatalf("ok=%d gone=%d dropped=%d, want exactly one processed response and one refused loser", ok, gone, dropped)
 	}
-	return true
 }
 
 // TestListener_WaitForCallback_Timeout proves shutdown when ctx is done.

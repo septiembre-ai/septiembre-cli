@@ -95,17 +95,18 @@ func (l *Listener) Addr() net.Addr { return l.ln.Addr() }
 // Close releases the listener; safe after WaitForCallback already shut it down.
 func (l *Listener) Close() error { return l.ln.Close() }
 
-// WaitForCallback serves exactly one GET /callback, validating state, then
-// shuts down (first request processed, or ctx done, whichever is first).
-func (l *Listener) WaitForCallback(ctx context.Context, expectedState string) (*CallbackResult, error) {
-	type outcome struct {
-		result *CallbackResult
-		err    error
-	}
-	outcomeCh := make(chan outcome, 1)
-	var once sync.Once
-	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+// callbackOutcome carries the terminal result of the callback wait.
+type callbackOutcome struct {
+	result *CallbackResult
+	err    error
+}
+
+// callbackHandler returns the single-use /callback handler. The first request
+// wins the sync.Once and produces the flow outcome; every later request gets
+// the 410 Gone one-shot page. Extracted from WaitForCallback so the 410
+// branch is unit-testable without racing real TCP connections.
+func callbackHandler(expectedState string, once *sync.Once, outcomeCh chan<- callbackOutcome) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		handled := false
 		once.Do(func() { handled = true })
 		if !handled {
@@ -114,17 +115,26 @@ func (l *Listener) WaitForCallback(ctx context.Context, expectedState string) (*
 		}
 		result, err := parseCallback(r, expectedState)
 		writeCallbackPage(w, err)
-		outcomeCh <- outcome{result: result, err: err}
-	})
+		outcomeCh <- callbackOutcome{result: result, err: err}
+	}
+}
+
+// WaitForCallback serves exactly one GET /callback, validating state, then
+// shuts down (first request processed, or ctx done, whichever is first).
+func (l *Listener) WaitForCallback(ctx context.Context, expectedState string) (*CallbackResult, error) {
+	outcomeCh := make(chan callbackOutcome, 1)
+	var once sync.Once
+	mux := http.NewServeMux()
+	mux.HandleFunc("/callback", callbackHandler(expectedState, &once, outcomeCh))
 
 	httpSrv := &http.Server{Handler: mux}
 	serveErrCh := make(chan error, 1)
 	go func() { serveErrCh <- httpSrv.Serve(l.ln) }()
-	var out outcome
+	var out callbackOutcome
 	select {
 	case out = <-outcomeCh:
 	case <-ctx.Done():
-		out = outcome{err: &TimeoutError{}}
+		out = callbackOutcome{err: &TimeoutError{}}
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
