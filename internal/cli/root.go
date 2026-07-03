@@ -109,6 +109,7 @@ GLOBAL FLAG VALIDATION
 	// Attach subcommands.
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(NewAuthCmd())
+	root.AddCommand(NewLoginCmd())
 	root.AddCommand(NewOrgsCmd())
 	root.AddCommand(NewTeamsCmd())
 	root.AddCommand(NewAppsCmd())
