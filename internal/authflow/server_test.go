@@ -289,6 +289,10 @@ func concurrentCallbackRaceOnce(t *testing.T, final bool) bool {
 	status2, body2, err2 := tryReadRawResponse(conn2)
 	<-resultCh
 
+	// A harness-side connection read hiccup (see dialAndSend/tryReadRawResponse
+	// doc comments) is retried, up to maxAttempts. Any invariant mismatch below
+	// is a real assertion and MUST fail immediately — it is never retried, even
+	// on a non-final attempt, since retrying would mask a genuine server bug.
 	if err1 != nil || err2 != nil {
 		if !final {
 			return false
@@ -314,9 +318,6 @@ func concurrentCallbackRaceOnce(t *testing.T, final bool) bool {
 		}
 	}
 	if goneCount != 1 || okCount != 1 {
-		if !final {
-			return false
-		}
 		t.Fatalf("gone=%d ok=%d, want exactly one 410 Gone and one processed response", goneCount, okCount)
 	}
 	return true

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -142,4 +143,66 @@ func DefaultOrgSlugFromPath(configPath string) string {
 		return ""
 	}
 	return v.GetString("org")
+}
+
+// DefaultCognitoDomain is the production Cognito hosted-UI domain used by
+// `septiembre login`, including its scheme. It is a var (not a const) so it
+// can be overridden via -ldflags at build time, mirroring
+// DefaultCognitoClientID. The scheme MUST always be present: exchangeCode
+// builds the token endpoint URL as strings.TrimRight(domain, "/") +
+// "/oauth2/token" and assumes the domain already includes one.
+var DefaultCognitoDomain = "https://auth.septiembre.ai"
+
+// DefaultCognitoClientID is the public Cognito app client ID used by
+// `septiembre login`. It has no baked-in default — it MUST be injected at
+// build time via -ldflags (see .goreleaser.yaml) since the app client is
+// registered per environment.
+var DefaultCognitoClientID string
+
+// CognitoDomainFromPath returns the Cognito hosted-UI domain to use.
+// Precedence: SEPTIEMBRE_COGNITO_DOMAIN env var → config file
+// "cognito_domain" key → DefaultCognitoDomain. Uses the same resolution
+// pattern as apiBaseURLWithConfig. The resolved value is always normalized
+// to include a scheme (see normalizeCognitoDomain).
+func CognitoDomainFromPath(configPath string) string {
+	if d := os.Getenv("SEPTIEMBRE_COGNITO_DOMAIN"); d != "" {
+		return normalizeCognitoDomain(d)
+	}
+	v, err := loadConfig(configPath)
+	if err != nil {
+		return normalizeCognitoDomain(DefaultCognitoDomain)
+	}
+	if d := v.GetString("cognito_domain"); d != "" {
+		return normalizeCognitoDomain(d)
+	}
+	return normalizeCognitoDomain(DefaultCognitoDomain)
+}
+
+// CognitoClientIDFromPath returns the Cognito public app client ID to use.
+// Precedence: SEPTIEMBRE_COGNITO_CLIENT_ID env var → config file
+// "cognito_client_id" key → DefaultCognitoClientID (build-time default).
+// Uses the same resolution pattern as apiBaseURLWithConfig.
+func CognitoClientIDFromPath(configPath string) string {
+	if c := os.Getenv("SEPTIEMBRE_COGNITO_CLIENT_ID"); c != "" {
+		return c
+	}
+	v, err := loadConfig(configPath)
+	if err != nil {
+		return DefaultCognitoClientID
+	}
+	if c := v.GetString("cognito_client_id"); c != "" {
+		return c
+	}
+	return DefaultCognitoClientID
+}
+
+// normalizeCognitoDomain ensures domain includes an explicit scheme. A bare
+// domain (e.g. hand-edited into the config file without "https://") would
+// otherwise let exchangeCode's strings.TrimRight(domain, "/") +
+// "/oauth2/token" concatenation produce a scheme-less, unusable URL.
+func normalizeCognitoDomain(domain string) string {
+	if strings.Contains(domain, "://") {
+		return domain
+	}
+	return "https://" + domain
 }
