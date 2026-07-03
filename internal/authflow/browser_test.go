@@ -96,3 +96,12 @@ func TestBrowserOpener_FailurePathReturnsErrorNoPanic(t *testing.T) {
 		t.Errorf("err = %v, want %v", err, wantErr)
 	}
 }
+
+// TestDefaultBrowserOpener_ReturnsOpener pins that the default constructor
+// yields a usable opener. It never invokes the opener itself — that would
+// spawn a real browser process.
+func TestDefaultBrowserOpener_ReturnsOpener(t *testing.T) {
+	if opener := defaultBrowserOpener(); opener == nil {
+		t.Fatal("defaultBrowserOpener() = nil, want non-nil opener")
+	}
+}
